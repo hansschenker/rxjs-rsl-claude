@@ -4,7 +4,7 @@ RSL = ASL topology + RxJS execution policies. A declarative language describing 
 
 ASL (AWS Step Functions' Amazon States Language) runs exactly one execution per input value. It has no answer to "a second value arrived while the first is still running" (cancel? queue? ignore? run both?), no timing operators, no cancellation, and one output per state. Those are precisely the things RxJS is about. RSL keeps every ASL topology construct unchanged and adds a small, fixed vocabulary of **policies** for the time dimension.
 
-The schema lives in `src/rsl/types.ts`; the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`) is not implemented yet; §9 sketches it.
+The schema lives in `src/rsl/types.ts`; the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`, `src/rsl/compile.ts`) implements the synchronous core: Pass, Choice, Succeed, Fail, the four shaping policies, `OnError`, the JSONPath subset, and the completion rule. Task, Wait, Parallel and Map are rejected at compile time until their slices land. §9 describes the model.
 
 ## 1. Definition
 
@@ -236,7 +236,7 @@ Input `{ id }` → `GetStatus` calls the resource with `id` and stores the resul
 
 = `mergeMap((id) => forkJoin([getUser(id), getOrders(id)]).pipe(map(toProfile)))`. Change `Join` to `"combineLatest"` and the branches may be live streams; the profile then re-emits whenever either side updates. That one field is the whole difference between a request and a subscription.
 
-## 9. Runtime model (not implemented yet)
+## 9. Runtime model
 
 One Subject per state; wiring is subscriptions; unsubscribe tears everything down. Errors never travel on a node's outer pipe.
 
@@ -301,7 +301,7 @@ Why this model over the alternatives: a pure "compile the graph to one `pipe()`"
 
 ## 12. Implementation order
 
-1. **Core**: Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`.
+1. **Core** (done except Task, see `src/rsl/compile.ts`): Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`.
 2. **Wait + cycles**: `queueScheduler` trampolining, the feedback-token pitfall. Test: the polling example.
 3. **Parallel + `Join`, Map + `Collect`**. Test: the profile example with `forkJoin` and `combineLatest`.
 4. **Live marbles**: wire the `trace` hook to a per-state marble view. `toMermaid` and `toPipeView` already exist.

@@ -15,7 +15,8 @@ Current state:
 - `src/rsl/types.ts` — the document schema. `src/rsl/examples.ts` — the spec's examples, typed as `RslMachine` (an explicit annotation, not `satisfies`: array literals of differing branch shapes get phantom `?: undefined` keys under `satisfies` and fail the `States` index signature).
 - `src/rsl/diagram.ts` (`toMermaid`) and `src/rsl/pipeview.ts` (`toPipeView`) render a document as a Mermaid flowchart and as a per-state RxJS operator list. Both are pure string builders; `src/rsl/labels.ts` holds their shared helpers.
 - `src/main.ts` is a demo page that renders every example both ways. It is the only place that imports `mermaid`; nothing under `src/rsl/` may import it.
-- The runtime (`compile`, spec §9) is **not implemented yet**. `rxjs` is installed but only its types are used so far.
+- `src/rsl/compile.ts` is the runtime (spec §9): one Subject per state, `observeOn(queueScheduler)` on every inbox, errors resolved per token, completion by an alive-token counter. Implemented: Pass, Choice, Succeed, Fail, all four shaping policies, `OnError`. Task, Wait, Parallel and Map throw `RslError` at compile time until their slices land. Helpers: `paths.ts` (JSONPath subset), `evaluate.ts` (data tests, registry resolution), `errors.ts`.
+- Runtime tests are marble tests with RxJS `TestScheduler` in `src/rsl/compile.test.ts`. Shaping operators are hand-written (not the stock `debounceTime` etc.) so that every suppressed token can decrement the alive counter; keep it that way.
 
 This repo is **not** one of the `rxjs-ds` / `rxjs-vitepress-ds` projects described in the parent-directory `CLAUDE.md`; the "keep both projects in sync" rule there does not apply here. Its general conventions (TypeScript strict, Prettier defaults, npm only, Conventional Commits, never commit or push unless asked) do apply.
 
@@ -42,4 +43,4 @@ There is no linter or formatter configured; the TypeScript compiler flags are th
   - `noUnusedLocals` / `noUnusedParameters` — unused symbols (including unused `import type`) are errors, not warnings.
   - `moduleResolution: "bundler"`, target ES2023, `lib` includes DOM.
 - Plain ESM (`"type": "module"`), no UI framework, real DOM APIs only.
-- Adding a policy to the language means touching, in order: `docs/rsl-spec.md` (§4/§5 tables), `src/rsl/types.ts`, `src/rsl/pipeview.ts`, `src/rsl/diagram.ts`, and a test in `src/rsl/rsl.test.ts`.
+- Adding a policy to the language means touching, in order: `docs/rsl-spec.md` (§4/§5 tables), `src/rsl/types.ts`, `src/rsl/pipeview.ts`, `src/rsl/diagram.ts`, `src/rsl/compile.ts`, and tests in `src/rsl/rsl.test.ts` and `src/rsl/compile.test.ts`.

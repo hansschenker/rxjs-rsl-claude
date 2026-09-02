@@ -1,4 +1,4 @@
-import type { RslMachine } from './types.ts';
+import type { Registry, RslMachine } from './types.ts';
 
 /**
  * The spec's example documents, type-checked against the schema.
@@ -74,8 +74,19 @@ export const profile: RslMachine = {
   },
 };
 
-export const examples: ReadonlyArray<{ name: string; machine: RslMachine }> = [
-  { name: 'map + filter', machine: mapFilter },
+/** An example document plus, once the runtime supports its states, an input and registry to run it with. */
+export interface Example {
+  name: string;
+  machine: RslMachine;
+  run?: { input: unknown[]; registry: Registry };
+}
+
+export const examples: ReadonlyArray<Example> = [
+  {
+    name: 'map + filter',
+    machine: mapFilter,
+    run: { input: [1, 2, 3, 4, 5], registry: { transforms: { double: (n) => (n as number) * 2 } } },
+  },
   { name: 'Live search', machine: liveSearch },
   { name: 'Polling loop', machine: polling },
   { name: 'Parallel profile', machine: profile },
