@@ -1,60 +1,50 @@
-import './style.css'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.ts'
+import './style.css';
+import mermaid from 'mermaid';
+import { toMermaid } from './rsl/diagram.ts';
+import { examples } from './rsl/examples.ts';
+import { toPipeView } from './rsl/pipeview.ts';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'neutral' });
 
-<div class="ticks"></div>
+const app = document.querySelector<HTMLDivElement>('#app')!;
+app.innerHTML = `
+  <header>
+    <h1>RSL</h1>
+    <p>
+      Reactive States Language: ASL topology + RxJS execution policies.
+      Each document below is rendered twice from the same data, as a topology graph
+      and as the RxJS pipe each state stands for.
+    </p>
+  </header>
+  <main></main>
+`;
+const main = app.querySelector('main')!;
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+async function render(): Promise<void> {
+  for (const [index, { name, machine }] of examples.entries()) {
+    const section = document.createElement('section');
+    section.className = 'example';
+    section.innerHTML = `
+      <h2>${escapeHtml(name)}</h2>
+      <p class="comment">${escapeHtml(machine.Comment ?? '')}</p>
+      <div class="diagram"></div>
+      <pre class="pipe"></pre>
+      <details>
+        <summary>RSL document</summary>
+        <pre class="source"></pre>
+      </details>
+    `;
+    main.append(section);
+    section.querySelector<HTMLPreElement>('.pipe')!.textContent = toPipeView(machine);
+    section.querySelector<HTMLPreElement>('.source')!.textContent = JSON.stringify(machine, null, 2);
+    const { svg } = await mermaid.render(`rsl-diagram-${index}`, toMermaid(machine));
+    section.querySelector<HTMLDivElement>('.diagram')!.innerHTML = svg;
+  }
+}
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+render().catch((error: unknown) => console.error(error));
