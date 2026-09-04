@@ -20,12 +20,21 @@ export type Collect = 'array' | 'stream';
 /** A registry name (JSON-portable) or the function itself (TS-authored documents). */
 export type Ref<F> = string | F;
 
-export type ResourceFn = (input: unknown) => ObservableInput<unknown>;
-export type TransformFn = (input: unknown) => unknown;
-export type PredicateFn = (input: unknown) => boolean;
-export type KeyFn = (input: unknown) => unknown;
+/**
+ * Registry functions declare the input they expect, e.g. `(order: Order) => …`.
+ * The `never` default is what lets any such function fit the registry; the
+ * runtime supplies the token value and casts once at the boundary (`evaluate.ts`).
+ */
+export type ResourceFn<In = never, Out = unknown> = (input: In) => ObservableInput<Out>;
+export type TransformFn<In = never, Out = unknown> = (input: In) => Out;
+export type PredicateFn<In = never> = (input: In) => boolean;
+export type KeyFn<In = never, Key = unknown> = (input: In) => Key;
 
-/** Functions that string references in a document resolve to at compile time. */
+/**
+ * Functions that string references in a document resolve to at compile time.
+ * This is the untyped form; `RegistryFor<typeof machine>` (`registry.ts`) is
+ * the same shape with the names the document references made required.
+ */
 export interface Registry {
   resources?: Record<string, ResourceFn | RslMachine>;
   transforms?: Record<string, TransformFn>;
@@ -35,7 +44,7 @@ export interface Registry {
 
 /** ASL Retrier, field names verbatim. Defaults: IntervalSeconds 1, MaxAttempts 3, BackoffRate 2. */
 export interface Retrier {
-  ErrorEquals: string[];
+  ErrorEquals: readonly string[];
   IntervalSeconds?: number;
   MaxAttempts?: number;
   BackoffRate?: number;
@@ -44,7 +53,7 @@ export interface Retrier {
 
 /** ASL Catcher, field names verbatim. ResultPath defaults to "$". */
 export interface Catcher {
-  ErrorEquals: string[];
+  ErrorEquals: readonly string[];
   Next: string;
   ResultPath?: string;
 }
@@ -74,8 +83,8 @@ export type DataTest = { Variable: string } & Comparison;
 export type Test =
   | DataTest
   | { Condition: Ref<PredicateFn> }
-  | { And: Test[] }
-  | { Or: Test[] }
+  | { And: readonly Test[] }
+  | { Or: readonly Test[] }
   | { Not: Test };
 
 export type ChoiceRule = Test & { Next: string };
@@ -122,8 +131,8 @@ export type TaskState = Common &
     Take?: number;
     /** `timeout({ first: seconds * 1000 })`: time until the resource's first emission. */
     TimeoutSeconds?: number;
-    Retry?: Retrier[];
-    Catch?: Catcher[];
+    Retry?: readonly Retrier[];
+    Catch?: readonly Catcher[];
   };
 
 /** ASL Wait timing fields, mutually exclusive. */
@@ -137,19 +146,19 @@ export type WaitState = Common & Transition & WaitTiming & { Type: 'Wait' };
 
 export type ChoiceState = Common & {
   Type: 'Choice';
-  Choices: ChoiceRule[];
+  Choices: readonly ChoiceRule[];
   Default?: string;
 };
 
 export type ParallelState = Common &
   Transition & {
     Type: 'Parallel';
-    Branches: RslMachine[];
+    Branches: readonly RslMachine[];
     Join?: Join;
     Concurrency?: Concurrency;
     ResultPath?: string;
-    Retry?: Retrier[];
-    Catch?: Catcher[];
+    Retry?: readonly Retrier[];
+    Catch?: readonly Catcher[];
   };
 
 export type MapState = Common &
@@ -164,8 +173,8 @@ export type MapState = Common &
     /** Outer concurrency across successive input tokens. */
     Concurrency?: Concurrency;
     ResultPath?: string;
-    Retry?: Retrier[];
-    Catch?: Catcher[];
+    Retry?: readonly Retrier[];
+    Catch?: readonly Catcher[];
   };
 
 export type SucceedState = Common & { Type: 'Succeed' };

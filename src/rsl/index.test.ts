@@ -11,7 +11,10 @@ describe('package entries', () => {
     expect(typeof rsl.toPipeView).toBe('function');
     expect(typeof rsl.stateOps).toBe('function');
     expect(typeof rsl.traceLine).toBe('function');
+    expect(typeof rsl.traceToJson).toBe('function');
     expect(typeof rsl.errorName).toBe('function');
+    expect(typeof rsl.defineMachine).toBe('function');
+    expect(typeof rsl.parseDocument).toBe('function');
     expect(typeof rsl.getPath).toBe('function');
     expect(typeof rsl.setPath).toBe('function');
     expect(typeof rsl.parsePath).toBe('function');

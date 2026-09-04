@@ -12,7 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Current state:
 
-- `src/rsl/types.ts` — the document schema. `src/rsl/examples.ts` — the spec's examples, typed as `RslMachine` (an explicit annotation, not `satisfies`: array literals of differing branch shapes get phantom `?: undefined` keys under `satisfies` and fail the `States` index signature).
+- `src/rsl/types.ts` — the document schema. Arrays in it are `readonly` so literal documents (readonly tuples under a `const` type parameter) stay assignable; registry function types take `never` by default so a typed function (`(order: Order) => …`) fits any bucket, and the runtime casts once at the boundary (`RuntimeFn` in `evaluate.ts`).
+- `src/rsl/registry.ts` — the typed registry (spec §6): `defineMachine` keeps a document's literal types; `ResourceNames<M>` etc. read the referenced names off the type (nested machines included); `RegistryFor<M>` makes a bucket required and name-checked when it has literal names; `CompileArgs<M>` makes the registry argument itself required then. Every name walk short-circuits to `string` on a widened type (`StartAt: string`), and `TestNames` has a `Test extends T` guard: without those, `RslMachine` and `Test` (which refer to themselves) send `tsc` into "type instantiation is excessively deep" on any call with a literal document. `src/rsl/typed.test.ts` holds the `expectTypeOf` / `@ts-expect-error` assertions; keep type-only calls inside a never-invoked function there.
+- `src/rsl/examples.ts` — the spec's examples, written with `defineMachine` (not an `RslMachine` annotation, which would widen away the names; not `satisfies`, which normalises array literals of differing shapes into phantom `?: undefined` keys). `checkoutResources` / `checkoutRegistry` show a typed registry.
+- `src/rsl/document.ts` — `parseDocument(text)`: JSON text → `assertValid` → `RslMachine`. The schema is not applied there.
+- `src/cli/rsl.ts` — the `rsl` command line (spec §15): `main(argv, io)` with injected output, so `src/cli/rsl.test.ts` drives it against a temp directory; `src/cli/bin.ts` is the shebang wrapper. Node APIs live only here, never under `src/rsl/`. The schema check imports `ajv` dynamically and skips with a note when it is absent; `rsl.schema.json` is found by walking up from the module, which works from `src/cli/` and from `dist/lib/cli/`.
 - `rsl.schema.json` (repo root) — JSON Schema 2020-12 for the JSON form of a document, mirroring `types.ts`; `src/rsl/schema.test.ts` compiles it with Ajv in strict mode and checks it against the examples, so keep the two in step. `src/rsl/validate.ts` — the graph rules a schema cannot express (spec §14): `validate` returns `{ path, message }` issues, `assertValid` throws them as one `RslError`, and `compile` calls it before touching the registry.
 - `src/rsl/diagram.ts` (`toMermaid`) and `src/rsl/pipeview.ts` (`toPipeView`) render a document as a Mermaid flowchart and as a per-state RxJS operator list. Both are pure string builders; `src/rsl/labels.ts` holds their shared helpers.
 - `src/main.ts` is a demo page that renders every example both ways. It is the only place that imports `mermaid`; nothing under `src/rsl/` may import it.
@@ -27,7 +31,8 @@ This repo is **not** one of the `rxjs-ds` / `rxjs-vitepress-ds` projects describ
 ## Commands
 
 - `npm run dev` — Vite dev server with HMR.
-- `npm run build` — the done-criteria gate: `typecheck` (`tsc`, `noEmit`), `build:lib` (`tsc -p tsconfig.lib.json` → `dist/lib`, ESM + declarations), `build:site` (`vite build --outDir dist/site`), then `smoke` (imports `dist/lib/index.js` in Node and checks `compile` is there). Any type error fails the build.
+- `npm run rsl -- <command> <doc.json> …` — the CLI from source (Node 24 strips the types itself). The built `bin` is `dist/lib/cli/bin.js`.
+- `npm run build` — the done-criteria gate: `typecheck` (`tsc`, `noEmit`), `build:lib` (`tsc -p tsconfig.lib.json` → `dist/lib/rsl` and `dist/lib/cli`, ESM + declarations), `build:site` (`vite build --outDir dist/site`), then `smoke` (imports `dist/lib/rsl/index.js` in Node and checks `compile` is there). Any type error fails the build.
 - `npm run preview` — serve the demo site from `dist/site`.
 - `npm run typecheck` — type-check without building.
 - `npm test` — all tests once (`vitest run`). `npx vitest` for watch mode.
@@ -40,18 +45,18 @@ There is no linter or formatter configured; the TypeScript compiler flags are th
 ## Packaging
 
 - `package.json` is publishable in shape but `private: true`; flipping that (and choosing the final name) is the only step to publish. `rxjs` is a peer dependency; `mermaid` is a devDependency used only by the demo page.
-- Entries: `.` → `dist/lib/index.js` (the barrel `src/rsl/index.ts`: compile, validate, renderers, trace helpers, errors, paths, all types), `./examples` → `dist/lib/examples.js`, `./schema` → `rsl.schema.json`. `src/rsl/index.test.ts` pins what the barrel exports; add new public API there.
+- Entries: `.` → `dist/lib/rsl/index.js` (the barrel `src/rsl/index.ts`: compile, validate, parseDocument, defineMachine and the registry types, renderers, trace helpers, errors, paths, all types), `./examples` → `dist/lib/rsl/examples.js`, `./schema` → `rsl.schema.json`; `bin` `rsl` → `dist/lib/cli/bin.js`. `src/rsl/index.test.ts` pins what the barrel exports; add new public API there.
 - `files` ships `dist/lib`, the schema and the spec. `sideEffects: false`.
 - The emitted `.d.ts` files keep the `.ts` import specifiers (`rewriteRelativeImportExtensions` rewrites JavaScript only). That is fine: a packed tarball installed into a scratch consumer type-checked under both `nodenext` and `bundler` resolution, with and without `skipLibCheck`, and ran in plain Node. Do not add a post-processing step for it.
 
 ## Tooling constraints
 
 - Vite runs entirely on defaults — there is no `vite.config.*`. Entry is `index.html` → `/src/main.ts`; `public/` is served at the site root (`/favicon.svg`). The site's output directory is given on the command line (`dist/site`).
-- Two tsconfigs. `tsconfig.json` is the type-check / test / demo config (`noEmit`). `tsconfig.lib.json` extends it for the library emit: `src/rsl` only, tests excluded, `rootDir` `src/rsl`, `outDir` `dist/lib`, `lib` without DOM, and `rewriteRelativeImportExtensions` so the `.ts` extensions in source imports become `.js` in the output. Nothing under `src/rsl/` (tests aside) may use DOM globals or import from outside `src/rsl/`. Flags that shape how code must be written:
+- Two tsconfigs. `tsconfig.json` is the type-check / test / demo config (`noEmit`, types `vite/client` + `node`). `tsconfig.lib.json` extends it for the library and CLI emit: `src/rsl` and `src/cli`, tests excluded, `rootDir` `src`, `outDir` `dist/lib`, `lib` without DOM, types `node`, and `rewriteRelativeImportExtensions` so the `.ts` extensions in source imports become `.js` in the output. Nothing under `src/rsl/` (tests aside) may use DOM globals or Node APIs, or import from outside `src/rsl/`; Node APIs belong in `src/cli/`. Flags that shape how code must be written:
   - `verbatimModuleSyntax` — use `import type` for type-only imports.
   - `allowImportingTsExtensions` — local imports use explicit `.ts` extensions (`import { x } from './types.ts'`).
   - `erasableSyntaxOnly` — no `enum`, no runtime `namespace`, no constructor parameter properties; use string-literal unions, `as const` objects, and plain classes instead.
   - `noUnusedLocals` / `noUnusedParameters` — unused symbols (including unused `import type`) are errors, not warnings.
   - `moduleResolution: "bundler"`, target ES2023, `lib` includes DOM.
 - Plain ESM (`"type": "module"`), no UI framework, real DOM APIs only.
-- Adding a policy to the language means touching, in order: `docs/rsl-spec.md` (§4/§5 tables), `src/rsl/types.ts`, `rsl.schema.json`, `src/rsl/validate.ts` (only if the policy has a structural rule), `src/rsl/pipeview.ts`, `src/rsl/diagram.ts`, `src/rsl/compile.ts`, and tests in `src/rsl/rsl.test.ts`, `src/rsl/schema.test.ts`, `src/rsl/validate.test.ts` and `src/rsl/compile.test.ts`.
+- Adding a policy to the language means touching, in order: `docs/rsl-spec.md` (§4/§5 tables), `src/rsl/types.ts`, `rsl.schema.json`, `src/rsl/validate.ts` (only if the policy has a structural rule), `src/rsl/registry.ts` (only if the policy holds a registry name), `src/rsl/pipeview.ts`, `src/rsl/diagram.ts`, `src/rsl/compile.ts`, and tests in `src/rsl/rsl.test.ts`, `src/rsl/schema.test.ts`, `src/rsl/validate.test.ts`, `src/rsl/typed.test.ts` and `src/rsl/compile.test.ts`.

@@ -5,7 +5,7 @@ import { compile } from './compile.ts';
 import { examples } from './examples.ts';
 import type { Example } from './examples.ts';
 import { RslError, StateError } from './errors.ts';
-import { OUTPUT, traceLine } from './trace.ts';
+import { OUTPUT, traceLine, traceToJson } from './trace.ts';
 import type { TraceEvent } from './trace.ts';
 
 /**
@@ -35,13 +35,6 @@ const slug = (name: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
-/** Errors have no enumerable fields; keep their name and message in the golden file. */
-function serialize(events: TraceEvent[]): string {
-  const replacer = (_key: string, value: unknown): unknown =>
-    value instanceof Error ? { name: value.name, message: value.message } : value;
-  return JSON.stringify(events, replacer, 2) + '\n';
-}
-
 function record(example: Runnable): TraceEvent[] {
   const events: TraceEvent[] = [];
   const scheduler = new TestScheduler((actual, expected) => expect(actual).toEqual(expected));
@@ -69,7 +62,7 @@ describe('golden traces', () => {
 
   it.for(runnable)('$name matches its file under src/rsl/traces', async (example, context) => {
     const events = recordOrSkip(example, context);
-    await expect(serialize(events)).toMatchFileSnapshot(`./traces/${slug(example.name)}.trace.json`);
+    await expect(traceToJson(events)).toMatchFileSnapshot(`./traces/${slug(example.name)}.trace.json`);
   });
 
   it.for(runnable)('$name events are in time order, in the root run, and end at the output', (example, context) => {

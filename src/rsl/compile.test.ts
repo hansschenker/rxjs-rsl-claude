@@ -7,7 +7,7 @@ import { mapFilter } from './examples.ts';
 import type { TraceEvent } from './trace.ts';
 import type { Registry, RslMachine } from './types.ts';
 
-const registry: Registry = { transforms: { double: (n) => (n as number) * 2 } };
+const registry: Registry = { transforms: { double: (n: number) => n * 2 } };
 
 function marbles(): TestScheduler {
   return new TestScheduler((actual, expected) => expect(actual).toEqual(expected));
@@ -63,8 +63,10 @@ describe('compile: the map + filter example', () => {
 });
 
 describe('compile: compile-time errors', () => {
-  it('rejects a missing registry name', () => {
+  it('rejects a missing registry name at run time too (the types catch it first)', () => {
+    // @ts-expect-error mapFilter names a transform, so the typed registry must provide it
     expect(() => compile(mapFilter, {})).toThrow(RslError);
+    // @ts-expect-error same call, checking the message
     expect(() => compile(mapFilter, {})).toThrow('no transform named "double"');
   });
 
@@ -231,7 +233,7 @@ describe('compile: Choice, Fail and OnError', () => {
         },
       },
     };
-    const predicates: Registry = { predicates: { isThree: (n) => n === 3 } };
+    const predicates: Registry = { predicates: { isThree: (n: number) => n === 3 } };
     expect(await lastValueFrom(from([-1, 2, 3, 4]).pipe(compile(machine, predicates), toArray()))).toEqual([2, 4]);
   });
 });
@@ -246,7 +248,7 @@ describe('compile: cycles', () => {
         Done: { Type: 'Succeed' },
       },
     };
-    const inc: Registry = { transforms: { inc: (n) => (n as number) + 1 } };
+    const inc: Registry = { transforms: { inc: (n: number) => n + 1 } };
     expect(await lastValueFrom(of(0).pipe(compile<number, number>(machine, inc)))).toBe(20000);
   });
 });

@@ -86,6 +86,7 @@ Defaults are deliberately ASL-faithful: no shaping, `merge`, `forkJoin`, `array`
 - **ASL defaults kept**: Retrier `IntervalSeconds: 1`, `MaxAttempts: 3`, `BackoffRate: 2.0`; Catcher `ResultPath: "$"` (the error object replaces the input); Map `ItemsPath: "$"`; `States.ALL` must be the last Retrier/Catcher and alone in its `ErrorEquals`. Each Retrier keeps its own attempt counter per token, as in ASL.
 - **Error names** (`ErrorEquals`): match `error.name`; `States.ALL` matches everything, `States.Timeout` matches RxJS `TimeoutError`. A Catcher's error token is `{ Error, Cause }` with `Error` the name as `ErrorEquals` sees it (`States.Timeout` for a `TimeoutError`, otherwise `error.name`) and `Cause` the error's message.
 - **Reserved, not implemented in v0**: `QueryLanguage` (only `"JSONPath"` accepted), `Assign`/variables, `Parameters`/`ResultSelector` templating, `Output` (JSONata form), `HeartbeatSeconds`, machine-level `TimeoutSeconds`.
+- **Typed registries** (TypeScript-authored documents): write the document with `defineMachine({ … })` (`src/rsl/registry.ts`), which keeps its literal types. `RegistryFor<typeof doc>` is then the registry the document needs: a bucket (`resources`, `transforms`, `predicates`, `keys`) is required and name-checked exactly when the document references literal names in it, nested machines included, and `compile(doc, registry)` refuses a missing registry, a missing name, or a name in the wrong bucket at compile time. Registry functions declare the input they expect (`validate: (order: Order) => …`); the runtime supplies the token value. A document typed as plain `RslMachine` has no literal names and takes an optional, untyped `Registry`, as before.
 
 ## 7. Errors, cancellation, ordering, completion
 
@@ -383,3 +384,16 @@ Two layers, both independent of any registry:
 2. **Graph**: `validate(machine)` (`src/rsl/validate.ts`) returns every `{ path, message }` issue it finds, with paths like `States.IsDone.Choices[0].Next`; `assertValid` throws them as one `RslError`; `compile` calls it before resolving references. Rules: `StartAt` names a state; every `Next`, Choice rule, `Default` and Catcher target exists in the same machine; every state is reachable from `StartAt` (Choice and Catch edges count); Pass, Task, Wait, Parallel and Map have exactly one of `Next` / `End: true`, Choice, Succeed and Fail have neither; `Choices` is non-empty; `States.ALL` is the last Retrier/Catcher and alone in its `ErrorEquals`; a Wait has exactly one timing field; every path field parses; `QueryLanguage` is `"JSONPath"`. Branches, item processors and nested-machine resources are validated recursively with prefixed paths (`States.LoadProfile.Branches[0].States.User.Next`).
 
 Registry resolution (missing names, reserved JSONata) stays in `compile`, because it needs the registry.
+
+## 15. Tooling
+
+`rsl` (`src/cli/`, the package's `bin`; `npm run rsl -- …` runs it from source) works on JSON documents:
+
+| command | does |
+|---|---|
+| `rsl validate doc.json` | the §14 graph rules, then the JSON Schema when `ajv` is installed; every issue on stderr, exit 1 on any |
+| `rsl pipe doc.json` | the §13 pipe view |
+| `rsl viz doc.json [--out graph.mmd | graph.html] [--direction LR]` | the §13 flowchart as Mermaid text, or written as a `.mmd` file or a self-contained page |
+| `rsl run doc.json --registry ./registry.js --input values.json [--trace trace.json] [--verbose]` | pipes the input values (a JSON array, one token each) through `compile`; one JSON line per output value on stdout, the §9 trace to a file, or with `--verbose` one line per event on stderr; exit 1 when the run errors or the runtime rejects the document |
+
+The registry module's default export (or its `registry` export) is the registry. `parseDocument(text)` is the library form of the loader: JSON text in, a structurally valid `RslMachine` out (the schema is not applied there).

@@ -3,29 +3,41 @@ import { getPath } from './paths.ts';
 import type { DataTest, KeyFn, PredicateFn, Ref, Registry, Test } from './types.ts';
 
 /**
+ * Registry functions declare the input they expect (`(order: Order) => …`);
+ * the runtime hands them the token value, so it sees them as taking
+ * `unknown`. That cast happens once, here, at the registry boundary.
+ */
+export type RuntimeFn<R> = (value: unknown) => R;
+
+/**
  * Resolve a document reference at compile time: a function is returned as is,
  * a string is looked up in the given registry bucket. Missing names and
  * reserved JSONata strings fail here, not at run time.
  */
-export function resolveRef<F>(ref: Ref<F>, bucket: Record<string, F> | undefined, kind: string, where: string): F {
-  if (typeof ref !== 'string') return ref as F;
+export function resolveRef<F extends (input: never) => unknown>(
+  ref: Ref<F>,
+  bucket: Readonly<Record<string, F>> | undefined,
+  kind: string,
+  where: string,
+): RuntimeFn<ReturnType<F>> {
+  if (typeof ref !== 'string') return ref as unknown as RuntimeFn<ReturnType<F>>;
   if (ref.startsWith('{%')) {
     throw new RslError(`${where}: JSONata expressions ({% ... %}) are reserved and not evaluated in v0`);
   }
   const fn = bucket?.[ref];
   if (fn === undefined) throw new RslError(`${where}: no ${kind} named "${ref}" in the registry`);
-  return fn;
+  return fn as unknown as RuntimeFn<ReturnType<F>>;
 }
 
 /** The comparison key for `DistinctUntilChanged`: identity, a `$`-path, or a key function. */
-export function resolveKey(ref: true | string | KeyFn, registry: Registry, where: string): KeyFn {
+export function resolveKey(ref: true | string | KeyFn, registry: Registry, where: string): RuntimeFn<unknown> {
   if (ref === true) return (value) => value;
   if (typeof ref === 'string' && ref.startsWith('$')) return (value) => getPath(value, ref);
   return resolveRef(ref, registry.keys, 'key', where);
 }
 
 /** Compile a Choice rule, a `Filter`, or a `Condition` into a predicate over the token value. */
-export function compileTest(test: Test | Ref<PredicateFn>, registry: Registry, where: string): PredicateFn {
+export function compileTest(test: Test | Ref<PredicateFn>, registry: Registry, where: string): RuntimeFn<boolean> {
   if (typeof test === 'string' || typeof test === 'function') {
     return resolveRef(test, registry.predicates, 'predicate', where);
   }
@@ -45,7 +57,7 @@ export function compileTest(test: Test | Ref<PredicateFn>, registry: Registry, w
   return compileDataTest(test);
 }
 
-function compileDataTest(test: DataTest): PredicateFn {
+function compileDataTest(test: DataTest): RuntimeFn<boolean> {
   const compare = comparison(test);
   return (value) => compare(getPath(value, test.Variable));
 }

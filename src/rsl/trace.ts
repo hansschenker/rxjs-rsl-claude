@@ -87,3 +87,10 @@ export function traceLine(event: TraceEvent): string {
 export function errorName(error: unknown): string {
   return error instanceof Error ? error.name : String(error);
 }
+
+/** A trace as pretty-printed JSON. Errors have no enumerable fields, so they are kept as their name and message. */
+export function traceToJson(events: readonly TraceEvent[]): string {
+  const replacer = (_key: string, value: unknown): unknown =>
+    value instanceof Error ? { name: value.name, message: value.message } : value;
+  return JSON.stringify(events, replacer, 2) + '\n';
+}

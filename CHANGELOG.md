@@ -21,6 +21,11 @@ everything below is unreleased, and the first publish becomes 0.1.0.
 - Structural validation (`validate`, `assertValid`): targets exist,
   reachability from `StartAt`, exactly one of `Next` / `End`, `States.ALL`
   placement, Wait timing fields, path syntax, nested machines.
+- Typed registries: `defineMachine` keeps a document's literal types, and
+  `RegistryFor<typeof doc>` / `compile(doc, registry)` require every
+  referenced resource, transform, predicate and key, in the right bucket,
+  nested machines included. Registry functions declare their input type.
+- `parseDocument(text)`: JSON text in, a structurally valid document out.
 
 ### Runtime
 
@@ -48,6 +53,10 @@ everything below is unreleased, and the first publish becomes 0.1.0.
 
 ### Tooling
 
+- `rsl` command line (`bin`): `validate` (graph rules, then the JSON Schema
+  when `ajv` is installed), `pipe`, `viz` (Mermaid text, `.mmd` file or a
+  self-contained page), `run` (a registry module and a JSON array of inputs
+  in, one JSON line per output, optional trace file or live trace lines).
 - Library build to `dist/lib` (ESM + declarations), demo site build to
   `dist/site`, Vitest suite with marble tests, Ajv schema tests and golden
   traces, GitHub Actions CI running the build and the tests.

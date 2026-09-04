@@ -186,12 +186,12 @@ function validateState(state: RslState, path: string, scope: Scope): string[] {
   return targets;
 }
 
-function checkRetriers(retriers: Retrier[] | undefined, path: string, scope: Scope): void {
+function checkRetriers(retriers: readonly Retrier[] | undefined, path: string, scope: Scope): void {
   checkErrorEquals(retriers, path, scope);
 }
 
 function checkCatchers(
-  catchers: Catcher[] | undefined,
+  catchers: readonly Catcher[] | undefined,
   path: string,
   scope: Scope,
   target: (field: string, name: string | undefined) => void,
@@ -204,7 +204,11 @@ function checkCatchers(
 }
 
 /** ASL: `States.ALL` must be the last entry and alone in its `ErrorEquals`. */
-function checkErrorEquals(entries: ReadonlyArray<{ ErrorEquals: string[] }> | undefined, path: string, scope: Scope): void {
+function checkErrorEquals(
+  entries: ReadonlyArray<{ ErrorEquals: readonly string[] }> | undefined,
+  path: string,
+  scope: Scope,
+): void {
   if (entries === undefined) return;
   entries.forEach((entry, index) => {
     const where = `${path}[${index}].ErrorEquals`;

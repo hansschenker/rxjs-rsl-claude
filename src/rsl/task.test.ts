@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.ts';
 import { RslError } from './errors.ts';
 import { checkout, checkoutRegistry, checkoutResources } from './examples.ts';
-import type { Order } from './examples.ts';
+import type { Order, Validated } from './examples.ts';
+import type { RegistryFor } from './registry.ts';
 import type { TraceEvent } from './trace.ts';
 import type { Concurrency, Registry, RslMachine } from './types.ts';
 
@@ -19,7 +20,7 @@ import type { Concurrency, Registry, RslMachine } from './types.ts';
 const taskReady = ((): boolean => {
   const probe: RslMachine = { StartAt: 'T', States: { T: { Type: 'Task', Resource: 'probe', End: true } } };
   try {
-    compile(probe, { resources: { probe: (value) => of(value) } });
+    compile(probe, { resources: { probe: (value: unknown) => of(value) } });
     return true;
   } catch (error) {
     if (error instanceof RslError && error.message.includes('not implemented')) return false;
@@ -41,7 +42,7 @@ describe.runIf(taskReady)('Task: Concurrency', () => {
     StartAt: 'Slow',
     States: { Slow: { Type: 'Task', Resource: 'slow', Concurrency: mode, End: true } },
   });
-  const registry: Registry = { resources: { slow: (value) => timer(10).pipe(map(() => value)) } };
+  const registry: Registry = { resources: { slow: (value: unknown) => timer(10).pipe(map(() => value)) } };
 
   it('merge overlaps successive tokens', () => {
     marbles().run(({ cold, expectObservable }) => {
@@ -85,12 +86,12 @@ describe.runIf(taskReady)('Task: the checkout example', () => {
   const kinds = (events: TraceEvent[]): string[] => events.map((e) => `${e.kind} ${e.state}`);
 
   /** The example registry with a `charge` that hangs for its first `hangs` calls, so each of those ends in States.Timeout. */
-  function flakyCharge(hangs: number): Registry {
+  function flakyCharge(hangs: number): RegistryFor<typeof checkout> {
     let calls = 0;
     return {
       resources: {
         ...checkoutResources,
-        charge: (input) => (++calls <= hangs ? NEVER : checkoutResources.charge(input)),
+        charge: (order: Validated) => (++calls <= hangs ? NEVER : checkoutResources.charge(order)),
       },
     };
   }

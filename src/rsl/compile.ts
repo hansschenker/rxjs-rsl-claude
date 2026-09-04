@@ -13,10 +13,12 @@ import {
 import type { MonoTypeOperatorFunction, OperatorFunction } from 'rxjs';
 import { RslError, StateError } from './errors.ts';
 import { compileTest, resolveKey, resolveRef } from './evaluate.ts';
+import type { RuntimeFn } from './evaluate.ts';
 import { getPath, setPath } from './paths.ts';
+import type { CompileArgs } from './registry.ts';
 import { OUTPUT } from './trace.ts';
 import type { CancelReason, DropPolicy, Token, TraceBase, TraceEvent } from './trace.ts';
-import type { KeyFn, PredicateFn, Registry, RslMachine, RslState, Shaping } from './types.ts';
+import type { Registry, RslMachine, RslState, Shaping } from './types.ts';
 import { assertValid } from './validate.ts';
 
 /**
@@ -45,8 +47,8 @@ interface Step {
 interface Node {
   readonly name: string;
   readonly shaping: Shaping;
-  readonly keep: PredicateFn | undefined;
-  readonly key: KeyFn | undefined;
+  readonly keep: RuntimeFn<boolean> | undefined;
+  readonly key: RuntimeFn<unknown> | undefined;
   /** The state's synchronous work. May throw; the caller resolves the error per token. */
   readonly step: (raw: unknown) => Step;
 }
@@ -60,12 +62,22 @@ type Drop = (token: Token, policy: DropPolicy) => void;
 type Fail = (error: unknown, token: Token) => void;
 type Cancel = (token: Token, reason: CancelReason) => void;
 
-/** Compile a document into an RxJS operator: the stream entering `StartAt` in, the terminal-state values out. */
-export function compile<I, O>(
-  machine: RslMachine,
-  registry: Registry = {},
-  options: CompileOptions = {},
+/**
+ * Compile a document into an RxJS operator: the stream entering `StartAt` in,
+ * the terminal-state values out. With a document written via `defineMachine`
+ * the registry is required exactly when the document references names, and
+ * every referenced name must be present in the right bucket (`registry.ts`).
+ * A document typed as plain `RslMachine` takes an optional, untyped `Registry`.
+ *
+ * `NoInfer` matters: `M` must come from `machine` alone. Letting the compiler
+ * infer it from a registry typed as `RegistryFor<…>` sends it through the
+ * name-extraction conditionals and ends in "type instantiation is excessively deep".
+ */
+export function compile<I = unknown, O = unknown, M extends RslMachine = RslMachine>(
+  machine: M,
+  ...args: NoInfer<CompileArgs<M, CompileOptions>>
 ): OperatorFunction<I, O> {
+  const [registry = {}, options = {}] = args as unknown as [Registry?, CompileOptions?];
   const nodes = planMachine(machine, registry);
   const onError = machine.OnError ?? 'fail';
 
@@ -257,7 +269,7 @@ function shape(node: Node, drop: Drop, fail: Fail, cancel: Cancel): MonoTypeOper
   return (source) => ops.reduce((stream, op) => op(stream), source);
 }
 
-function keepTokens(keep: PredicateFn, drop: Drop, fail: Fail): MonoTypeOperatorFunction<Token> {
+function keepTokens(keep: RuntimeFn<boolean>, drop: Drop, fail: Fail): MonoTypeOperatorFunction<Token> {
   return filter((token) => {
     let ok: boolean;
     try {
@@ -271,7 +283,7 @@ function keepTokens(keep: PredicateFn, drop: Drop, fail: Fail): MonoTypeOperator
   });
 }
 
-function distinctTokens(key: KeyFn, drop: Drop, fail: Fail): MonoTypeOperatorFunction<Token> {
+function distinctTokens(key: RuntimeFn<unknown>, drop: Drop, fail: Fail): MonoTypeOperatorFunction<Token> {
   return (source) => {
     let seen = false;
     let last: unknown;

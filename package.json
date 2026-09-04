@@ -20,16 +20,19 @@
   "engines": {
     "node": ">=22"
   },
-  "main": "./dist/lib/index.js",
-  "types": "./dist/lib/index.d.ts",
+  "main": "./dist/lib/rsl/index.js",
+  "types": "./dist/lib/rsl/index.d.ts",
+  "bin": {
+    "rsl": "./dist/lib/cli/bin.js"
+  },
   "exports": {
     ".": {
-      "types": "./dist/lib/index.d.ts",
-      "default": "./dist/lib/index.js"
+      "types": "./dist/lib/rsl/index.d.ts",
+      "default": "./dist/lib/rsl/index.js"
     },
     "./examples": {
-      "types": "./dist/lib/examples.d.ts",
-      "default": "./dist/lib/examples.js"
+      "types": "./dist/lib/rsl/examples.d.ts",
+      "default": "./dist/lib/rsl/examples.js"
     },
     "./schema": "./rsl.schema.json",
     "./package.json": "./package.json"
@@ -42,11 +45,12 @@
   "sideEffects": false,
   "scripts": {
     "dev": "vite",
+    "rsl": "node src/cli/bin.ts",
     "typecheck": "tsc",
     "build": "npm run typecheck && npm run build:lib && npm run build:site && npm run smoke",
     "build:lib": "tsc -p tsconfig.lib.json",
     "build:site": "vite build --outDir dist/site",
-    "smoke": "node -e \"import('./dist/lib/index.js').then((m) => { if (typeof m.compile !== 'function') throw new Error('dist/lib/index.js has no compile export'); })\"",
+    "smoke": "node -e \"import('./dist/lib/rsl/index.js').then((m) => { if (typeof m.compile !== 'function') throw new Error('dist/lib/rsl/index.js has no compile export'); })\"",
     "preview": "vite preview --outDir dist/site",
     "test": "vitest run"
   },
@@ -54,6 +58,7 @@
     "rxjs": "^7.8.0"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "ajv": "^8.20.0",
     "mermaid": "^11.17.2",
     "rxjs": "^7.8.2",

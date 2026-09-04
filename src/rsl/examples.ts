@@ -1,10 +1,14 @@
 import { map, of, timer } from 'rxjs';
 import { StateError } from './errors.ts';
-import type { Registry, ResourceFn, RslMachine } from './types.ts';
+import { defineMachine } from './registry.ts';
+import type { RegistryFor } from './registry.ts';
+import type { Registry, RslMachine } from './types.ts';
 
 /**
- * The spec's example documents, type-checked against the schema.
- * All references are registry names so the diagrams stay readable.
+ * The spec's example documents. Each is written with `defineMachine`, which
+ * keeps its literal types so that `compile(example, registry)` checks the
+ * registry names at compile time (spec §6). All references are registry
+ * names so the diagrams stay readable.
  */
 
 /**
@@ -13,17 +17,17 @@ import type { Registry, ResourceFn, RslMachine } from './types.ts';
  * The source stays outside the document: `from([1,2,3,4,5]).pipe(compile(mapFilter, registry))`
  * with `registry.transforms.double = n => n * 2`. Emits 8 and 10.
  */
-export const mapFilter: RslMachine = {
+export const mapFilter = defineMachine({
   Comment: 'map(n => n * 2), then keep only n > 6. The source from([1,2,3,4,5]) is piped into the machine.',
   StartAt: 'Double',
   States: {
     Double: { Type: 'Pass', Transform: 'double', Next: 'Emit' },
     Emit: { Type: 'Succeed', Filter: { Variable: '$', NumericGreaterThan: 6 } },
   },
-};
+});
 
 /** Live search: input shaping + switch + timeout + retry + catch. */
-export const liveSearch: RslMachine = {
+export const liveSearch = defineMachine({
   Comment: 'Wait for typing to settle, skip repeats, cancel stale requests, fall back on error.',
   StartAt: 'Search',
   States: {
@@ -40,10 +44,10 @@ export const liveSearch: RslMachine = {
     },
     Fallback: { Type: 'Pass', Result: { results: [], error: true }, End: true },
   },
-};
+});
 
 /** Polling loop: a cycle, natural in ASL topology and awkward in a flat RxJS pipe. */
-export const polling: RslMachine = {
+export const polling = defineMachine({
   Comment: 'Poll a job until it reports done, then emit { id, job }.',
   StartAt: 'GetStatus',
   States: {
@@ -56,10 +60,10 @@ export const polling: RslMachine = {
     Pause: { Type: 'Wait', Seconds: 2, Next: 'GetStatus' },
     Finished: { Type: 'Succeed' },
   },
-};
+});
 
 /** Parallel branches with a join policy. Switch Join to combineLatest and the branches may be live streams. */
-export const profile: RslMachine = {
+export const profile = defineMachine({
   Comment: 'Load a user and their orders side by side, then merge.',
   StartAt: 'LoadProfile',
   States: {
@@ -74,14 +78,14 @@ export const profile: RslMachine = {
     },
     Merge: { Type: 'Pass', Transform: 'toProfile', End: true },
   },
-};
+});
 
 /**
  * Checkout: a business flow that exercises Task end to end. Validate each order,
  * charge it one at a time (retrying on timeout with backoff), then notify; any
  * failure ends in Reject with the error beside the order (spec §8).
  */
-export const checkout: RslMachine = {
+export const checkout = defineMachine({
   Comment:
     'Validate each order, charge it one at a time (retrying on timeout with backoff), then notify. Any failure ends in Reject with the error beside the order.',
   StartAt: 'Validate',
@@ -104,31 +108,35 @@ export const checkout: RslMachine = {
     Notify: { Type: 'Task', Resource: 'notify', End: true },
     Reject: { Type: 'Task', Resource: 'reject', End: true },
   },
-};
+});
 
 export interface Order {
   id: string;
   amount: number;
   email: string;
 }
+export type Validated = Order & { valid: true };
+export type Charged = Validated & { paymentId: string };
+/** What Reject receives: the order as it was when the error happened, plus the Catcher's error object at `$.error`. */
+export type Rejected = Order & { error: { Error: string; Cause: string } };
 
 /**
- * The checkout resources. `validate` throws synchronously (the runtime wraps
- * every resource in `defer`, so that is an error notification, not a crash);
- * `charge` answers after a short delay; `notify` and `reject` tag the token.
+ * The checkout resources, typed by what each expects. `validate` throws
+ * synchronously (the runtime wraps every resource in `defer`, so that is an
+ * error notification, not a crash); `charge` answers after a short delay;
+ * `notify` and `reject` tag the token.
  */
-export const checkoutResources: Record<'validate' | 'charge' | 'notify' | 'reject', ResourceFn> = {
-  validate: (input) => {
-    const order = input as Order;
+export const checkoutResources = {
+  validate: (order: Order) => {
     if (!(order.amount > 0)) throw new StateError('ValidationError', `order ${order.id}: amount must be positive`);
-    return of({ ...order, valid: true });
+    return of({ ...order, valid: true as const });
   },
-  charge: (input) => timer(10).pipe(map(() => ({ ...(input as Order), paymentId: `pay_${(input as Order).id}` }))),
-  notify: (input) => of({ ...(input as object), notified: true }),
-  reject: (input) => of({ ...(input as object), rejected: true }),
-};
+  charge: (order: Validated) => timer(10).pipe(map(() => ({ ...order, paymentId: `pay_${order.id}` }))),
+  notify: (charged: Charged) => of({ ...charged, notified: true as const }),
+  reject: (rejected: Rejected) => of({ ...rejected, rejected: true as const }),
+} satisfies RegistryFor<typeof checkout>['resources'];
 
-export const checkoutRegistry: Registry = { resources: checkoutResources };
+export const checkoutRegistry = { resources: checkoutResources } satisfies RegistryFor<typeof checkout>;
 
 /** An example document plus, once the runtime supports its states, an input and registry to run it with. */
 export interface Example {
@@ -141,7 +149,7 @@ export const examples: ReadonlyArray<Example> = [
   {
     name: 'map + filter',
     machine: mapFilter,
-    run: { input: [1, 2, 3, 4, 5], registry: { transforms: { double: (n) => (n as number) * 2 } } },
+    run: { input: [1, 2, 3, 4, 5], registry: { transforms: { double: (n: number) => n * 2 } } },
   },
   { name: 'Live search', machine: liveSearch },
   { name: 'Polling loop', machine: polling },
