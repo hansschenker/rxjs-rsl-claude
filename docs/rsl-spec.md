@@ -271,7 +271,21 @@ export function compile<I, O>(
 }
 ```
 
-`run` emits `{ token, target }` where `target` is the state's `Next`, the first matching Choice rule's `Next`, a Catcher's `Next`, or `'$output'`; `route` pushes to the target inbox, or to the subscriber for `$output`, and decrements `alive` when a token ends. `run(Task)` = `flatten(Concurrency)((t) => defer(() => from(resource(t))).pipe(timeout({ first }), retryPerRetrier(state.Retry), take?, catchToTarget(state.Catch), dropOrFail(OnError)))`. Tokens carry `{ id, value, enteredAt }` internally for tracing; `trace` reports `{ state, kind: 'in' | 'out' | 'drop' | 'error', tokenId, value, at }` for every token entering or leaving a state and is the hook for the live marble view (§13).
+`run` emits `{ token, target }` where `target` is the state's `Next`, the first matching Choice rule's `Next`, a Catcher's `Next`, or `'$output'`; `route` pushes to the target inbox, or to the subscriber for `$output`, and decrements `alive` when a token ends. `run(Task)` = `flatten(Concurrency)((t) => defer(() => from(resource(t))).pipe(timeout({ first }), retryPerRetrier(state.Retry), take?, catchToTarget(state.Catch), dropOrFail(OnError)))`. Tokens carry `{ id, value, enteredAt }` internally.
+
+**Trace events.** The `trace` option receives a `TraceEvent` (`src/rsl/trace.ts`) for everything that happens to a token at a state. It is the hook for the live marble view and the trace overlay (§13), and the golden traces in `src/rsl/traces/` pin its shape. Every event carries `{ run, state, tokenId, value, at }`: `run` is `''` in the root machine (a Parallel, Map or Task that runs a nested machine prefixes it with the nested machine's location and its own token id, `States.LoadProfile.Branches[0]#3`; a nested `compile` never sets it itself), `value` is the token's value at that state (`out` reports the output), `at` is scheduler time (virtual frames under `TestScheduler`). The kinds:
+
+| kind | extra fields | when |
+|---|---|---|
+| `in` | — | the token entered the state's inbox |
+| `out` | `target` | the token left the state for `target`: a state name, or `$output` when leaving the machine through End / Succeed |
+| `drop` | `policy` | a policy suppressed the token: `Filter`, `Debounce`, `Throttle`, `DistinctUntilChanged`, or `Concurrency` when `exhaust` ignores a newcomer |
+| `error` | `error`, `onError` | the token's error reached the machine's `OnError` (after Retry and Catch): `drop` ends the token, `fail` errors the output stream |
+| `cancel` | `reason` | in-flight work for the token was abandoned: `unsubscribe` (the machine was torn down while the token was pending in a debounce timer, a Wait or a resource) or `switch` (a newer token superseded it) |
+| `retry` | `attempt`, `error` | a Retrier is about to re-run the resource; `attempt` is 1 for the first retry |
+| `catch` | `error`, `target` | a Catcher routed the error token to `target`; takes the place of `out` for that token |
+
+A token's life at a state is therefore `in`, then exactly one of `out`, `catch`, `drop`, `error` or `cancel`, with any number of `retry` events in between. The current slice emits `in`, `out`, `drop`, `error` and `cancel` (debounce timers at teardown); `retry`, `catch` and the remaining `cancel` / `drop` sources arrive with Task.
 
 Known pitfalls:
 
@@ -312,7 +326,7 @@ The document is data, so it can be drawn without being run. Three levels:
 
 1. **Topology graph** (`src/rsl/diagram.ts`): `toMermaid(machine)` returns Mermaid `flowchart` text. Nodes are shaped by Type: Task rectangle, Choice diamond, Wait hexagon, Pass rounded, Parallel/Map subroutine box, Succeed/Fail double circle. `Next` edges are plain; Choice rules are labelled edges (`$.job.status == "done"`, `default`); `Catch` entries are dashed edges labelled with their `ErrorEquals`. Policies form a third line in the node label (`filter: $ > 6`, `debounce 300 · distinctUntilChanged · switchMap · timeout 5s · retry ×2 on States.Timeout`). `Parallel` and `Map` render as one subgraph per branch / item processor between the state's node and a join node whose label carries the policy (`join: forkJoin`, `collect: array`). Node ids are path-prefixed (`m_LoadProfile_b0_User`) so nested machines cannot collide; labels show the real state name. Cycles are ordinary back edges. The whole machine sits between an `in` and an `out` node, because a machine is an operator.
 2. **Pipe view** (`src/rsl/pipeview.ts`): `toPipeView(machine)` returns one line per state with the RxJS the state stands for, e.g. `Search: debounceTime(300) → distinctUntilChanged() → switchMap(searchApi) → timeout({ first: 5000 }) → retry(2 on States.Timeout) → catchError(→ Fallback) → output`. The diagram says where values go; the pipe view says which operators they pass through.
-3. **Live marbles** (future, needs the runtime): the `trace` hook from §9 feeds a UI that draws one marble row per state as the machine runs. RxJS `TestScheduler` makes the same output deterministic for docs.
+3. **Live marbles and trace overlay** (future): the trace events from §9 feed a UI that draws one marble row per `(run, state)` as the machine runs, and an overlay that colours the §13.1 flowchart from the events up to a chosen index (`in` marks the current node, `out` / `catch` targets the edges taken, `error` / `drop` / `cancel` where a token ended). RxJS `TestScheduler` makes the same output deterministic for docs; the golden traces are that output.
 
 Consequences for authors: a function renders only as `fn`, so use registry names when a diagram matters, and prefer structured data tests over `Condition` for readable edge labels.
 

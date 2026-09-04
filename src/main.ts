@@ -2,11 +2,12 @@ import './style.css';
 import mermaid from 'mermaid';
 import { from, toArray } from 'rxjs';
 import { compile } from './rsl/compile.ts';
-import type { TraceEvent } from './rsl/compile.ts';
 import { toMermaid } from './rsl/diagram.ts';
 import { examples } from './rsl/examples.ts';
 import type { Example } from './rsl/examples.ts';
 import { toPipeView } from './rsl/pipeview.ts';
+import { traceLine } from './rsl/trace.ts';
+import type { TraceEvent } from './rsl/trace.ts';
 
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'neutral' });
@@ -38,7 +39,7 @@ function runBlock(example: Example): HTMLPreElement {
   if (!run) return pre;
   const lines: string[] = [];
   const trace = (event: TraceEvent): void => {
-    lines.push(`${event.kind.padEnd(5)} ${event.state.padEnd(12)} #${event.tokenId}  ${JSON.stringify(event.value)}`);
+    lines.push(traceLine(event));
   };
   try {
     from(run.input)

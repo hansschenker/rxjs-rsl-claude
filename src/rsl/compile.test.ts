@@ -2,9 +2,9 @@ import { from, lastValueFrom, of, toArray } from 'rxjs';
 import { TestScheduler } from 'rxjs/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { compile } from './compile.ts';
-import type { TraceEvent } from './compile.ts';
 import { RslError } from './errors.ts';
 import { mapFilter } from './examples.ts';
+import type { TraceEvent } from './trace.ts';
 import type { Registry, RslMachine } from './types.ts';
 
 const registry: Registry = { transforms: { double: (n) => (n as number) * 2 } };
@@ -45,17 +45,20 @@ describe('compile: the map + filter example', () => {
       events.push(event);
     };
     await lastValueFrom(from([1, 4]).pipe(compile<number, number>(mapFilter, registry, { trace }), toArray()));
-    expect(events.map((e) => `${e.kind} ${e.state} ${String(e.value)}`)).toEqual([
-      'in Double 1',
-      'out Double 2',
-      'in Emit 2',
-      'drop Emit 2',
-      'in Double 4',
-      'out Double 8',
-      'in Emit 8',
-      'out Emit 8',
+    expect(events).toMatchObject([
+      { kind: 'in', state: 'Double', tokenId: 0, value: 1 },
+      { kind: 'out', state: 'Double', tokenId: 0, value: 2, target: 'Emit' },
+      { kind: 'in', state: 'Emit', tokenId: 0, value: 2 },
+      { kind: 'drop', state: 'Emit', tokenId: 0, value: 2, policy: 'Filter' },
+      { kind: 'in', state: 'Double', tokenId: 1, value: 4 },
+      { kind: 'out', state: 'Double', tokenId: 1, value: 8, target: 'Emit' },
+      { kind: 'in', state: 'Emit', tokenId: 1, value: 8 },
+      { kind: 'out', state: 'Emit', tokenId: 1, value: 8, target: '$output' },
     ]);
-    expect(events.map((e) => e.tokenId)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
+    for (const event of events) {
+      expect(event.run).toBe('');
+      expect(typeof event.at).toBe('number');
+    }
   });
 });
 
@@ -138,12 +141,15 @@ describe('compile: input shaping', () => {
 
   it('cancels a pending debounce on unsubscribe', () => {
     const machine: RslMachine = { StartAt: 'Emit', States: { Emit: { Type: 'Succeed', Debounce: 10 } } };
-    const kinds: string[] = [];
-    const op = compile(machine, {}, { trace: (e) => void kinds.push(e.kind) });
+    const events: TraceEvent[] = [];
+    const op = compile(machine, {}, { trace: (e) => void events.push(e) });
     marbles().run(({ cold, expectObservable }) => {
       expectObservable(cold('a---------').pipe(op), '---!').toBe('----');
     });
-    expect(kinds).toEqual(['in']);
+    expect(events).toMatchObject([
+      { kind: 'in', state: 'Emit', tokenId: 0, value: 'a', at: 0 },
+      { kind: 'cancel', state: 'Emit', tokenId: 0, value: 'a', at: 3, reason: 'unsubscribe' },
+    ]);
   });
 });
 
@@ -182,23 +188,37 @@ describe('compile: Choice, Fail and OnError', () => {
     });
   });
 
-  it('errors the output stream on Fail when OnError is fail', () => {
+  it('errors the output stream on Fail when OnError is fail, tracing the error', () => {
+    const events: TraceEvent[] = [];
     marbles().run(({ cold, expectObservable }) => {
-      expectObservable(cold('a|', { a: -1 }).pipe(compile(positiveOnly('fail')))).toBe(
+      const op = compile(positiveOnly('fail'), {}, { trace: (e) => void events.push(e) });
+      expectObservable(cold('a|', { a: -1 }).pipe(op)).toBe(
         '#',
         undefined,
         expect.objectContaining({ name: 'NotPositive', message: 'value must be > 0' }),
       );
     });
+    expect(events.at(-1)).toMatchObject({
+      kind: 'error',
+      state: 'Boom',
+      tokenId: 0,
+      value: -1,
+      onError: 'fail',
+      error: expect.objectContaining({ name: 'NotPositive' }),
+    });
   });
 
-  it('drops only the failing token when OnError is drop', async () => {
+  it('drops only the failing token when OnError is drop, tracing it as an error', async () => {
     const onDrop = vi.fn();
-    const out = await lastValueFrom(from([1, -1, 2]).pipe(compile(positiveOnly('drop'), {}, { onDrop }), toArray()));
+    const events: TraceEvent[] = [];
+    const op = compile(positiveOnly('drop'), {}, { onDrop, trace: (e) => void events.push(e) });
+    const out = await lastValueFrom(from([1, -1, 2]).pipe(op, toArray()));
     expect(out).toEqual([1, 2]);
     expect(onDrop).toHaveBeenCalledTimes(1);
     expect(onDrop.mock.calls[0]?.[0]).toMatchObject({ name: 'NotPositive' });
     expect(onDrop.mock.calls[0]?.[1]).toMatchObject({ value: -1 });
+    const ended = events.filter((e) => e.kind === 'error' || e.kind === 'drop');
+    expect(ended).toMatchObject([{ kind: 'error', state: 'Boom', tokenId: 1, value: -1, onError: 'drop' }]);
   });
 
   it('supports And / Or / Not and registry predicates', async () => {

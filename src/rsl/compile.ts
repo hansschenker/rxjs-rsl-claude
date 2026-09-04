@@ -14,6 +14,8 @@ import type { MonoTypeOperatorFunction, OperatorFunction } from 'rxjs';
 import { RslError, StateError } from './errors.ts';
 import { compileTest, resolveKey, resolveRef } from './evaluate.ts';
 import { getPath, setPath } from './paths.ts';
+import { OUTPUT } from './trace.ts';
+import type { CancelReason, DropPolicy, Token, TraceBase, TraceEvent } from './trace.ts';
 import type { KeyFn, PredicateFn, Registry, RslMachine, RslState, Shaping } from './types.ts';
 import { assertValid } from './validate.ts';
 
@@ -26,31 +28,13 @@ import { assertValid } from './validate.ts';
  * are rejected at compile time until their slices land.
  */
 
-/** A value travelling through a machine. `id` and `enteredAt` survive transformations. */
-export interface Token {
-  readonly id: number;
-  readonly value: unknown;
-  readonly enteredAt: number;
-}
-
-export type TraceKind = 'in' | 'out' | 'drop' | 'error';
-
-export interface TraceEvent {
-  readonly state: string;
-  readonly kind: TraceKind;
-  readonly tokenId: number;
-  readonly value: unknown;
-  readonly at: number;
-}
-
 export interface CompileOptions {
-  /** Called for every token entering or leaving a state, and for drops and errors. */
+  /** Called for everything that happens to a token at a state (`src/rsl/trace.ts`, spec §9). */
   trace?: (event: TraceEvent) => void;
   /** Called when `OnError: "drop"` ends a token because of an error. */
   onDrop?: (error: unknown, token: Token) => void;
 }
 
-const OUTPUT = '$output';
 const IMPLEMENTED: ReadonlySet<RslState['Type']> = new Set(['Pass', 'Choice', 'Succeed', 'Fail']);
 
 interface Step {
@@ -72,8 +56,9 @@ interface Routed {
   readonly target: string;
 }
 
-type Drop = (token: Token) => void;
+type Drop = (token: Token, policy: DropPolicy) => void;
 type Fail = (error: unknown, token: Token) => void;
+type Cancel = (token: Token, reason: CancelReason) => void;
 
 /** Compile a document into an RxJS operator: the stream entering `StartAt` in, the terminal-state values out. */
 export function compile<I, O>(
@@ -92,9 +77,16 @@ export function compile<I, O>(
       let alive = 0;
       let sourceDone = false;
 
-      const trace = (state: string, kind: TraceKind, token: Token): void => {
-        options.trace?.({ state, kind, tokenId: token.id, value: token.value, at: asyncScheduler.now() });
+      const report = (event: TraceEvent): void => {
+        options.trace?.(event);
       };
+      const base = (state: string, token: Token): TraceBase => ({
+        run: '',
+        state,
+        tokenId: token.id,
+        value: token.value,
+        at: asyncScheduler.now(),
+      });
       const checkDone = (): void => {
         if (sourceDone && alive === 0) subscriber.complete();
       };
@@ -103,7 +95,7 @@ export function compile<I, O>(
         checkDone();
       };
       const send = (target: string, token: Token): void => {
-        trace(target, 'in', token);
+        report({ ...base(target, token), kind: 'in' });
         inbox.get(target)!.next(token);
       };
       const emit = (token: Token): void => {
@@ -112,34 +104,39 @@ export function compile<I, O>(
       };
       const dropAt =
         (state: string): Drop =>
-        (token) => {
-          trace(state, 'drop', token);
+        (token, policy) => {
+          report({ ...base(state, token), kind: 'drop', policy });
           end();
         };
       const failAt =
         (state: string): Fail =>
         (error, token) => {
+          report({ ...base(state, token), kind: 'error', error, onError });
           if (onError === 'drop') {
-            trace(state, 'drop', token);
             options.onDrop?.(error, token);
             end();
           } else {
-            trace(state, 'error', token);
             subscriber.error(error);
           }
+        };
+      const cancelAt =
+        (state: string): Cancel =>
+        (token, reason) => {
+          report({ ...base(state, token), kind: 'cancel', reason });
         };
 
       for (const node of nodes) {
         const drop = dropAt(node.name);
         const fail = failAt(node.name);
+        const cancel = cancelAt(node.name);
         const node$ = inbox.get(node.name)!.pipe(
           observeOn(queueScheduler),
-          shape(node, drop, fail),
+          shape(node, drop, fail, cancel),
           mergeMap((token): Observable<Routed> => {
             try {
               const { value, target } = node.step(token.value);
               const out: Token = { id: token.id, value, enteredAt: token.enteredAt };
-              trace(node.name, 'out', out);
+              report({ ...base(node.name, out), kind: 'out', target });
               return of({ token: out, target });
             } catch (error) {
               fail(error, token);
@@ -251,10 +248,10 @@ function select(value: unknown, path: string | undefined): unknown {
 // --- input shaping (run time) ------------------------------------------------
 
 /** Spec §4: Filter, then Debounce, then Throttle, then DistinctUntilChanged. Every suppressed token is reported. */
-function shape(node: Node, drop: Drop, fail: Fail): MonoTypeOperatorFunction<Token> {
+function shape(node: Node, drop: Drop, fail: Fail, cancel: Cancel): MonoTypeOperatorFunction<Token> {
   const ops: MonoTypeOperatorFunction<Token>[] = [];
   if (node.keep) ops.push(keepTokens(node.keep, drop, fail));
-  if (node.shaping.Debounce !== undefined) ops.push(debounceTokens(node.shaping.Debounce, drop));
+  if (node.shaping.Debounce !== undefined) ops.push(debounceTokens(node.shaping.Debounce, drop, cancel));
   if (node.shaping.Throttle !== undefined) ops.push(throttleTokens(node.shaping.Throttle, drop));
   if (node.key) ops.push(distinctTokens(node.key, drop, fail));
   return (source) => ops.reduce((stream, op) => op(stream), source);
@@ -269,7 +266,7 @@ function keepTokens(keep: PredicateFn, drop: Drop, fail: Fail): MonoTypeOperator
       fail(error, token);
       return false;
     }
-    if (!ok) drop(token);
+    if (!ok) drop(token, 'Filter');
     return ok;
   });
 }
@@ -288,7 +285,7 @@ function distinctTokens(key: KeyFn, drop: Drop, fail: Fail): MonoTypeOperatorFun
           return false;
         }
         if (seen && Object.is(current, last)) {
-          drop(token);
+          drop(token, 'DistinctUntilChanged');
           return false;
         }
         seen = true;
@@ -310,22 +307,25 @@ function throttleTokens(ms: number, drop: Drop): MonoTypeOperatorFunction<Token>
           windowStart = now;
           return true;
         }
-        drop(token);
+        drop(token, 'Throttle');
         return false;
       }),
     );
   };
 }
 
-/** Like `debounceTime`, but a superseded token is dropped the moment its successor arrives. */
-function debounceTokens(ms: number, drop: Drop): MonoTypeOperatorFunction<Token> {
+/**
+ * Like `debounceTime`, but a superseded token is dropped the moment its
+ * successor arrives, and a token still pending at teardown is reported as cancelled.
+ */
+function debounceTokens(ms: number, drop: Drop, cancel: Cancel): MonoTypeOperatorFunction<Token> {
   return (source) =>
     new Observable<Token>((subscriber) => {
       let pending: Token | undefined;
       let timer: Subscription | undefined;
       const subscription = source.subscribe({
         next: (token) => {
-          if (pending) drop(pending);
+          if (pending) drop(pending, 'Debounce');
           pending = token;
           timer?.unsubscribe();
           timer = asyncScheduler.schedule(() => {
@@ -341,6 +341,7 @@ function debounceTokens(ms: number, drop: Drop): MonoTypeOperatorFunction<Token>
       return () => {
         subscription.unsubscribe();
         timer?.unsubscribe();
+        if (pending) cancel(pending, 'unsubscribe');
       };
     });
 }

@@ -1,0 +1,172 @@
+[
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 0,
+    "value": 1,
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 0,
+    "value": 2,
+    "at": 0,
+    "kind": "out",
+    "target": "Emit"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 0,
+    "value": 2,
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 0,
+    "value": 2,
+    "at": 0,
+    "kind": "drop",
+    "policy": "Filter"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 1,
+    "value": 2,
+    "at": 2,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 1,
+    "value": 4,
+    "at": 2,
+    "kind": "out",
+    "target": "Emit"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 1,
+    "value": 4,
+    "at": 2,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 1,
+    "value": 4,
+    "at": 2,
+    "kind": "drop",
+    "policy": "Filter"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 2,
+    "value": 3,
+    "at": 4,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 2,
+    "value": 6,
+    "at": 4,
+    "kind": "out",
+    "target": "Emit"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 2,
+    "value": 6,
+    "at": 4,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 2,
+    "value": 6,
+    "at": 4,
+    "kind": "drop",
+    "policy": "Filter"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 3,
+    "value": 4,
+    "at": 6,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 3,
+    "value": 8,
+    "at": 6,
+    "kind": "out",
+    "target": "Emit"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 3,
+    "value": 8,
+    "at": 6,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 3,
+    "value": 8,
+    "at": 6,
+    "kind": "out",
+    "target": "$output"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 4,
+    "value": 5,
+    "at": 8,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Double",
+    "tokenId": 4,
+    "value": 10,
+    "at": 8,
+    "kind": "out",
+    "target": "Emit"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 4,
+    "value": 10,
+    "at": 8,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Emit",
+    "tokenId": 4,
+    "value": 10,
+    "at": 8,
+    "kind": "out",
+    "target": "$output"
+  }
+]
