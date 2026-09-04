@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RSL — Reactive States Language (v0 draft)",
+  "description": "The JSON form of an RSL document: ASL topology plus RxJS execution policies. Mirrors src/rsl/types.ts; graph rules that a schema cannot express (targets exist, reachability, States.ALL placement) are checked by src/rsl/validate.ts. Functions and inline machines authored in TypeScript are outside this schema.",
+  "$ref": "#/$defs/machine",
+  "$defs": {
+    "machine": {
+      "type": "object",
+      "description": "A state machine. Compiles to an RxJS operator: the stream entering StartAt in, the values reaching End / Succeed out.",
+      "properties": {
+        "$schema": { "type": "string", "description": "Editor hint; ignored by the runtime." },
+        "Comment": { "type": "string" },
+        "Version": { "type": "string" },
+        "QueryLanguage": { "const": "JSONPath", "description": "Reserved. Only \"JSONPath\" is accepted in v0." },
+        "StartAt": { "type": "string", "minLength": 1 },
+        "States": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/state" }
+        },
+        "OnError": {
+          "type": "string",
+          "enum": ["fail", "drop"],
+          "default": "fail",
+          "description": "Uncaught error or Fail state: `fail` errors the output stream, `drop` ends that token only."
+        }
+      },
+      "required": ["StartAt", "States"],
+      "additionalProperties": false
+    },
+
+    "state": {
+      "type": "object",
+      "properties": {
+        "Type": { "type": "string", "enum": ["Pass", "Task", "Wait", "Choice", "Parallel", "Map", "Succeed", "Fail"] }
+      },
+      "required": ["Type"],
+      "oneOf": [
+        { "$ref": "#/$defs/passState" },
+        { "$ref": "#/$defs/taskState" },
+        { "$ref": "#/$defs/waitState" },
+        { "$ref": "#/$defs/choiceState" },
+        { "$ref": "#/$defs/parallelState" },
+        { "$ref": "#/$defs/mapState" },
+        { "$ref": "#/$defs/succeedState" },
+        { "$ref": "#/$defs/failState" }
+      ]
+    },
+
+    "path": {
+      "type": "string",
+      "description": "The JSONPath subset RSL supports: $, $.a.b, $.a[0], and combinations.",
+      "pattern": "^\\$(\\.[A-Za-z_][A-Za-z0-9_]*|\\[[0-9]+\\])*$"
+    },
+
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A registry name. A {% ... %} string is JSONata: reserved and rejected in v0."
+    },
+
+    "common": {
+      "type": "object",
+      "description": "Fields every state accepts: ASL paths plus the input-shaping policies, applied in the order Filter, Debounce, Throttle, DistinctUntilChanged.",
+      "properties": {
+        "Comment": { "type": "string" },
+        "InputPath": { "$ref": "#/$defs/path" },
+        "OutputPath": { "$ref": "#/$defs/path" },
+        "Filter": {
+          "description": "filter() on the state's inbox: a data test or a registry predicate name.",
+          "anyOf": [{ "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/closedTest" }]
+        },
+        "Debounce": { "type": "number", "minimum": 0, "description": "debounceTime(ms) on the state's inbox." },
+        "Throttle": { "type": "number", "minimum": 0, "description": "throttleTime(ms), leading edge, on the state's inbox." },
+        "DistinctUntilChanged": {
+          "description": "distinctUntilChanged on the token value: true compares with Object.is; a $-path or a registry key name selects what to compare.",
+          "anyOf": [{ "const": true }, { "type": "string", "minLength": 1 }]
+        }
+      }
+    },
+
+    "transition": {
+      "type": "object",
+      "description": "Exactly one of Next or End: true, as in ASL.",
+      "properties": {
+        "Next": { "type": "string", "minLength": 1 },
+        "End": { "const": true }
+      },
+      "oneOf": [
+        { "type": "object", "required": ["Next"] },
+        { "type": "object", "required": ["End"] }
+      ]
+    },
+
+    "concurrency": {
+      "type": "string",
+      "enum": ["merge", "switch", "concat", "exhaust"],
+      "default": "merge",
+      "description": "Flattening strategy for successive tokens: mergeMap, switchMap, concatMap or exhaustMap."
+    },
+
+    "retrier": {
+      "type": "object",
+      "description": "ASL Retrier. Defaults: IntervalSeconds 1, MaxAttempts 3, BackoffRate 2.",
+      "properties": {
+        "ErrorEquals": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+        "IntervalSeconds": { "type": "number", "minimum": 0 },
+        "MaxAttempts": { "type": "integer", "minimum": 0 },
+        "BackoffRate": { "type": "number", "minimum": 1 },
+        "MaxDelaySeconds": { "type": "number", "minimum": 0 }
+      },
+      "required": ["ErrorEquals"],
+      "additionalProperties": false
+    },
+
+    "catcher": {
+      "type": "object",
+      "description": "ASL Catcher. The error object { Error, Cause } is inserted at ResultPath (default $) and routed to Next.",
+      "properties": {
+        "ErrorEquals": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+        "Next": { "type": "string", "minLength": 1 },
+        "ResultPath": { "$ref": "#/$defs/path" }
+      },
+      "required": ["ErrorEquals", "Next"],
+      "additionalProperties": false
+    },
+
+    "dataTest": {
+      "type": "object",
+      "description": "ASL JSONPath-mode data test: a Variable plus exactly one comparison.",
+      "properties": {
+        "Variable": { "$ref": "#/$defs/path" },
+        "StringEquals": { "type": "string" },
+        "StringLessThan": { "type": "string" },
+        "StringGreaterThan": { "type": "string" },
+        "NumericEquals": { "type": "number" },
+        "NumericLessThan": { "type": "number" },
+        "NumericGreaterThan": { "type": "number" },
+        "NumericLessThanEquals": { "type": "number" },
+        "NumericGreaterThanEquals": { "type": "number" },
+        "BooleanEquals": { "type": "boolean" },
+        "IsPresent": { "type": "boolean" },
+        "IsNull": { "type": "boolean" }
+      },
+      "required": ["Variable"],
+      "oneOf": [
+        { "type": "object", "required": ["StringEquals"] },
+        { "type": "object", "required": ["StringLessThan"] },
+        { "type": "object", "required": ["StringGreaterThan"] },
+        { "type": "object", "required": ["NumericEquals"] },
+        { "type": "object", "required": ["NumericLessThan"] },
+        { "type": "object", "required": ["NumericGreaterThan"] },
+        { "type": "object", "required": ["NumericLessThanEquals"] },
+        { "type": "object", "required": ["NumericGreaterThanEquals"] },
+        { "type": "object", "required": ["BooleanEquals"] },
+        { "type": "object", "required": ["IsPresent"] },
+        { "type": "object", "required": ["IsNull"] }
+      ]
+    },
+
+    "test": {
+      "description": "A boolean test over the token value. Open (no property restriction) so that choiceRule can add Next; use closedTest elsewhere.",
+      "oneOf": [
+        { "$ref": "#/$defs/dataTest" },
+        {
+          "type": "object",
+          "properties": { "Condition": { "$ref": "#/$defs/ref" } },
+          "required": ["Condition"]
+        },
+        {
+          "type": "object",
+          "properties": { "And": { "type": "array", "items": { "$ref": "#/$defs/closedTest" }, "minItems": 1 } },
+          "required": ["And"]
+        },
+        {
+          "type": "object",
+          "properties": { "Or": { "type": "array", "items": { "$ref": "#/$defs/closedTest" }, "minItems": 1 } },
+          "required": ["Or"]
+        },
+        {
+          "type": "object",
+          "properties": { "Not": { "$ref": "#/$defs/closedTest" } },
+          "required": ["Not"]
+        }
+      ]
+    },
+
+    "closedTest": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/test" }],
+      "unevaluatedProperties": false
+    },
+
+    "choiceRule": {
+      "type": "object",
+      "description": "A test plus the state to route to when it passes.",
+      "allOf": [{ "$ref": "#/$defs/test" }],
+      "properties": { "Next": { "type": "string", "minLength": 1 } },
+      "required": ["Next"],
+      "unevaluatedProperties": false
+    },
+
+    "passState": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/common" }, { "$ref": "#/$defs/transition" }],
+      "properties": {
+        "Type": { "const": "Pass" },
+        "Result": { "description": "A constant result; used when Transform is absent." },
+        "ResultPath": { "$ref": "#/$defs/path" },
+        "Transform": { "$ref": "#/$defs/ref", "description": "map(transform): a registry transform name." }
+      },
+      "required": ["Type"],
+      "unevaluatedProperties": false
+    },
+
+    "taskState": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/common" }, { "$ref": "#/$defs/transition" }],
+      "properties": {
+        "Type": { "const": "Task" },
+        "Resource": {
+          "description": "A registry resource name, or a nested machine.",
+          "anyOf": [{ "$ref": "#/$defs/ref" }, { "$ref": "#/$defs/machine" }]
+        },
+        "ResultPath": { "$ref": "#/$defs/path" },
+        "Concurrency": { "$ref": "#/$defs/concurrency" },
+        "MaxConcurrency": { "type": "integer", "minimum": 0, "default": 0, "description": "With merge only; 0 means unlimited." },
+        "Take": { "type": "integer", "minimum": 1, "description": "take(n) on the resource output; 1 makes a multi-shot resource one-shot." },
+        "TimeoutSeconds": { "type": "number", "exclusiveMinimum": 0, "description": "timeout({ first }): time until the resource's first emission." },
+        "Retry": { "type": "array", "items": { "$ref": "#/$defs/retrier" } },
+        "Catch": { "type": "array", "items": { "$ref": "#/$defs/catcher" } }
+      },
+      "required": ["Type", "Resource"],
+      "unevaluatedProperties": false
+    },
+
+    "waitState": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/common" }, { "$ref": "#/$defs/transition" }],
+      "properties": {
+        "Type": { "const": "Wait" },
+        "Seconds": { "type": "number", "minimum": 0 },
+        "Timestamp": { "type": "string", "minLength": 1 },
+        "SecondsPath": { "$ref": "#/$defs/path" },
+        "TimestampPath": { "$ref": "#/$defs/path" }
+      },
+      "required": ["Type"],
+      "oneOf": [
+        { "type": "object", "required": ["Seconds"] },
+        { "type": "object", "required": ["Timestamp"] },
+        { "type": "object", "required": ["SecondsPath"] },
+        { "type": "object", "required": ["TimestampPath"] }
+      ],
+      "unevaluatedProperties": false
+    },
+
+    "choiceState": {
+      "type": "object",
+      "description": "Routes each token to the first matching rule's Next, else Default, else error States.NoChoiceMatched. Takes neither Next nor End.",
+      "allOf": [{ "$ref": "#/$defs/common" }],
+      "properties": {
+        "Type": { "const": "Choice" },
+        "Choices": { "type": "array", "items": { "$ref": "#/$defs/choiceRule" }, "minItems": 1 },
+        "Default": { "type": "string", "minLength": 1 }
+      },
+      "required": ["Type", "Choices"],
+      "unevaluatedProperties": false
+    },
+
+    "parallelState": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/common" }, { "$ref": "#/$defs/transition" }],
+      "properties": {
+        "Type": { "const": "Parallel" },
+        "Branches": { "type": "array", "items": { "$ref": "#/$defs/machine" }, "minItems": 1 },
+        "Join": {
+          "type": "string",
+          "enum": ["forkJoin", "combineLatest", "zip", "merge", "race"],
+          "default": "forkJoin",
+          "description": "How branch outputs combine: forkJoin / combineLatest / zip emit an array indexed by branch; merge / race emit single branch values."
+        },
+        "Concurrency": { "$ref": "#/$defs/concurrency" },
+        "ResultPath": { "$ref": "#/$defs/path" },
+        "Retry": { "type": "array", "items": { "$ref": "#/$defs/retrier" } },
+        "Catch": { "type": "array", "items": { "$ref": "#/$defs/catcher" } }
+      },
+      "required": ["Type", "Branches"],
+      "unevaluatedProperties": false
+    },
+
+    "mapState": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/common" }, { "$ref": "#/$defs/transition" }],
+      "properties": {
+        "Type": { "const": "Map" },
+        "ItemProcessor": { "$ref": "#/$defs/machine" },
+        "ItemsPath": { "$ref": "#/$defs/path", "default": "$" },
+        "MaxConcurrency": { "type": "integer", "minimum": 0, "default": 0, "description": "Inner concurrency across items; 0 means unlimited." },
+        "Collect": {
+          "type": "string",
+          "enum": ["array", "stream"],
+          "default": "array",
+          "description": "array: one token holding each item's last result in input order; stream: one token per item result."
+        },
+        "Concurrency": { "$ref": "#/$defs/concurrency" },
+        "ResultPath": { "$ref": "#/$defs/path" },
+        "Retry": { "type": "array", "items": { "$ref": "#/$defs/retrier" } },
+        "Catch": { "type": "array", "items": { "$ref": "#/$defs/catcher" } }
+      },
+      "required": ["Type", "ItemProcessor"],
+      "unevaluatedProperties": false
+    },
+
+    "succeedState": {
+      "type": "object",
+      "description": "Emits the token on the machine output. Takes neither Next nor End.",
+      "allOf": [{ "$ref": "#/$defs/common" }],
+      "properties": { "Type": { "const": "Succeed" } },
+      "required": ["Type"],
+      "unevaluatedProperties": false
+    },
+
+    "failState": {
+      "type": "object",
+      "description": "Ends the token with error { Error, Cause }, resolved by the machine's OnError. Takes neither Next nor End.",
+      "allOf": [{ "$ref": "#/$defs/common" }],
+      "properties": {
+        "Type": { "const": "Fail" },
+        "Error": { "type": "string", "minLength": 1 },
+        "Cause": { "type": "string" }
+      },
+      "required": ["Type"],
+      "unevaluatedProperties": false
+    }
+  }
+}

@@ -15,6 +15,7 @@ import { RslError, StateError } from './errors.ts';
 import { compileTest, resolveKey, resolveRef } from './evaluate.ts';
 import { getPath, setPath } from './paths.ts';
 import type { KeyFn, PredicateFn, Registry, RslMachine, RslState, Shaping } from './types.ts';
+import { assertValid } from './validate.ts';
 
 /**
  * The RSL runtime (spec §9): one Subject per state, wiring by subscription,
@@ -169,21 +170,13 @@ export function compile<I, O>(
 
 // --- planning (compile time) -------------------------------------------------
 
+/** Structure first (`assertValid`, spec §14), then registry resolution; both fail here rather than per token. */
 function planMachine(machine: RslMachine, registry: Registry): Node[] {
-  const names = new Set(Object.keys(machine.States));
-  if (!names.has(machine.StartAt)) throw new RslError(`StartAt "${machine.StartAt}" is not a state in States`);
-  const assertTarget = (target: string, where: string): void => {
-    if (!names.has(target)) throw new RslError(`${where}: target state "${target}" does not exist`);
-  };
-  return Object.entries(machine.States).map(([name, state]) => planState(name, state, registry, assertTarget));
+  assertValid(machine);
+  return Object.entries(machine.States).map(([name, state]) => planState(name, state, registry));
 }
 
-function planState(
-  name: string,
-  state: RslState,
-  registry: Registry,
-  assertTarget: (target: string, where: string) => void,
-): Node {
+function planState(name: string, state: RslState, registry: Registry): Node {
   const where = `State "${name}"`;
   if (!IMPLEMENTED.has(state.Type)) {
     throw new RslError(
@@ -203,7 +196,6 @@ function planState(
         state.Transform === undefined
           ? undefined
           : resolveRef(state.Transform, registry.transforms, 'transform', `${where} Transform`);
-      if (state.Next !== undefined) assertTarget(state.Next, where);
       const target = state.Next ?? OUTPUT;
       const { InputPath, OutputPath, ResultPath, Result } = state;
       return {
@@ -230,13 +222,11 @@ function planState(
       };
     }
     case 'Choice': {
-      const rules = state.Choices.map((rule, index) => {
-        const ruleWhere = `${where} Choices[${index}]`;
-        assertTarget(rule.Next, ruleWhere);
-        return { test: compileTest(rule, registry, ruleWhere), target: rule.Next };
-      });
+      const rules = state.Choices.map((rule, index) => ({
+        test: compileTest(rule, registry, `${where} Choices[${index}]`),
+        target: rule.Next,
+      }));
       const fallback = state.Default;
-      if (fallback !== undefined) assertTarget(fallback, `${where} Default`);
       const { InputPath, OutputPath } = state;
       return {
         ...base,

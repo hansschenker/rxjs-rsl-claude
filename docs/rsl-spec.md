@@ -4,7 +4,7 @@ RSL = ASL topology + RxJS execution policies. A declarative language describing 
 
 ASL (AWS Step Functions' Amazon States Language) runs exactly one execution per input value. It has no answer to "a second value arrived while the first is still running" (cancel? queue? ignore? run both?), no timing operators, no cancellation, and one output per state. Those are precisely the things RxJS is about. RSL keeps every ASL topology construct unchanged and adds a small, fixed vocabulary of **policies** for the time dimension.
 
-The schema lives in `src/rsl/types.ts`; the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`, `src/rsl/compile.ts`) implements the synchronous core: Pass, Choice, Succeed, Fail, the four shaping policies, `OnError`, the JSONPath subset, and the completion rule. Task, Wait, Parallel and Map are rejected at compile time until their slices land. §9 describes the model.
+The TypeScript schema lives in `src/rsl/types.ts` and the JSON Schema for JSON/YAML documents in `rsl.schema.json`; `src/rsl/validate.ts` checks the graph rules neither can express (§14); the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`, `src/rsl/compile.ts`) implements the synchronous core: Pass, Choice, Succeed, Fail, the four shaping policies, `OnError`, the JSONPath subset, and the completion rule. Task, Wait, Parallel and Map are rejected at compile time until their slices land. §9 describes the model.
 
 ## 1. Definition
 
@@ -315,3 +315,12 @@ The document is data, so it can be drawn without being run. Three levels:
 3. **Live marbles** (future, needs the runtime): the `trace` hook from §9 feeds a UI that draws one marble row per state as the machine runs. RxJS `TestScheduler` makes the same output deterministic for docs.
 
 Consequences for authors: a function renders only as `fn`, so use registry names when a diagram matters, and prefer structured data tests over `Condition` for readable edge labels.
+
+## 14. Validation
+
+Two layers, both independent of any registry:
+
+1. **Shape**: `rsl.schema.json` (JSON Schema 2020-12) describes the JSON form of a document: the fields each `Type` accepts and their types, exactly one of `Next` / `End: true`, exactly one comparison per data test, exactly one Wait timing field, the JSONPath subset as a pattern. Point an editor at it with `"$schema": "./rsl.schema.json"` in a JSON document or `# yaml-language-server: $schema=./rsl.schema.json` in YAML. Functions and inline machines authored in TypeScript are outside its scope; `src/rsl/types.ts` covers those.
+2. **Graph**: `validate(machine)` (`src/rsl/validate.ts`) returns every `{ path, message }` issue it finds, with paths like `States.IsDone.Choices[0].Next`; `assertValid` throws them as one `RslError`; `compile` calls it before resolving references. Rules: `StartAt` names a state; every `Next`, Choice rule, `Default` and Catcher target exists in the same machine; every state is reachable from `StartAt` (Choice and Catch edges count); Pass, Task, Wait, Parallel and Map have exactly one of `Next` / `End: true`, Choice, Succeed and Fail have neither; `Choices` is non-empty; `States.ALL` is the last Retrier/Catcher and alone in its `ErrorEquals`; a Wait has exactly one timing field; every path field parses; `QueryLanguage` is `"JSONPath"`. Branches, item processors and nested-machine resources are validated recursively with prefixed paths (`States.LoadProfile.Branches[0].States.User.Next`).
+
+Registry resolution (missing names, reserved JSONata) stays in `compile`, because it needs the registry.

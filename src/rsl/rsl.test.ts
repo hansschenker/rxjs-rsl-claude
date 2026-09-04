@@ -2,31 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { toMermaid } from './diagram.ts';
 import { examples, liveSearch, mapFilter, polling, profile } from './examples.ts';
 import { toPipeView } from './pipeview.ts';
-import type { RslMachine, RslState } from './types.ts';
-
-function targets(state: RslState): string[] {
-  const out: string[] = [];
-  if ('Next' in state && state.Next) out.push(state.Next);
-  if (state.Type === 'Choice') {
-    out.push(...state.Choices.map((rule) => rule.Next));
-    if (state.Default) out.push(state.Default);
-  }
-  if ('Catch' in state && state.Catch) out.push(...state.Catch.map((catcher) => catcher.Next));
-  return out;
-}
-
-function expectWellFormed(machine: RslMachine): void {
-  expect(machine.States).toHaveProperty(machine.StartAt);
-  for (const state of Object.values(machine.States)) {
-    for (const name of targets(state)) expect(machine.States, `missing target ${name}`).toHaveProperty(name);
-    if (state.Type === 'Parallel') state.Branches.forEach(expectWellFormed);
-    if (state.Type === 'Map') expectWellFormed(state.ItemProcessor);
-  }
-}
+import { validate } from './validate.ts';
 
 describe('examples', () => {
-  it.each(examples)('$name references only existing states', ({ machine }) => {
-    expectWellFormed(machine);
+  it.each(examples)('$name is a valid document', ({ machine }) => {
+    expect(validate(machine)).toEqual([]);
   });
 });
 
