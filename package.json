@@ -1,23 +1,64 @@
 {
   "name": "rxjs-rsl-claude",
+  "version": "0.1.0",
+  "description": "RSL (Reactive States Language): ASL topology + RxJS execution policies. A declarative workflow language that compiles to RxJS operators.",
+  "license": "MIT",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hansschenker/rxjs-rsl-claude.git"
+  },
+  "keywords": [
+    "rxjs",
+    "asl",
+    "step-functions",
+    "workflow",
+    "state-machine",
+    "reactive"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/lib/index.js",
+  "types": "./dist/lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib/index.d.ts",
+      "default": "./dist/lib/index.js"
+    },
+    "./examples": {
+      "types": "./dist/lib/examples.d.ts",
+      "default": "./dist/lib/examples.js"
+    },
+    "./schema": "./rsl.schema.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/lib",
+    "rsl.schema.json",
+    "docs/rsl-spec.md"
+  ],
+  "sideEffects": false,
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "typecheck": "tsc",
+    "build": "npm run typecheck && npm run build:lib && npm run build:site && npm run smoke",
+    "build:lib": "tsc -p tsconfig.lib.json",
+    "build:site": "vite build --outDir dist/site",
+    "smoke": "node -e \"import('./dist/lib/index.js').then((m) => { if (typeof m.compile !== 'function') throw new Error('dist/lib/index.js has no compile export'); })\"",
+    "preview": "vite preview --outDir dist/site",
     "test": "vitest run"
+  },
+  "peerDependencies": {
+    "rxjs": "^7.8.0"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
-    "typescript": "~6.0.2",
-    "vite": "^8.0.12"
-  },
-  "dependencies": {
     "mermaid": "^11.17.2",
     "rxjs": "^7.8.2",
-    "vitepress": "^1.6.4",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12",
     "vitest": "^4.1.11"
   }
 }

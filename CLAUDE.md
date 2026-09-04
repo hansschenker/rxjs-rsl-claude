@@ -27,20 +27,27 @@ This repo is **not** one of the `rxjs-ds` / `rxjs-vitepress-ds` projects describ
 ## Commands
 
 - `npm run dev` — Vite dev server with HMR.
-- `npm run build` — runs `tsc` (type-check only, `noEmit`) and then `vite build`. Any type error fails the build.
-- `npm run preview` — serve the production build from `dist/`.
-- `npx tsc` — type-check without building.
+- `npm run build` — the done-criteria gate: `typecheck` (`tsc`, `noEmit`), `build:lib` (`tsc -p tsconfig.lib.json` → `dist/lib`, ESM + declarations), `build:site` (`vite build --outDir dist/site`), then `smoke` (imports `dist/lib/index.js` in Node and checks `compile` is there). Any type error fails the build.
+- `npm run preview` — serve the demo site from `dist/site`.
+- `npm run typecheck` — type-check without building.
 - `npm test` — all tests once (`vitest run`). `npx vitest` for watch mode.
   - One file: `npx vitest run src/rsl/rsl.test.ts`
   - One test by name: `npx vitest run -t "test name"`
-- `vitepress` is installed, but there is no `.vitepress/` directory or docs script yet.
+- CI (`.github/workflows/ci.yml`) runs `npm ci`, `npm run build`, `npm test` on Node 24 for pushes to `main` and pull requests. Under `CI=true` vitest fails on a missing golden trace instead of writing it, so commit new golden files with the change that creates them.
 
 There is no linter or formatter configured; the TypeScript compiler flags are the only automated checks.
 
+## Packaging
+
+- `package.json` is publishable in shape but `private: true`; flipping that (and choosing the final name) is the only step to publish. `rxjs` is a peer dependency; `mermaid` is a devDependency used only by the demo page.
+- Entries: `.` → `dist/lib/index.js` (the barrel `src/rsl/index.ts`: compile, validate, renderers, trace helpers, errors, paths, all types), `./examples` → `dist/lib/examples.js`, `./schema` → `rsl.schema.json`. `src/rsl/index.test.ts` pins what the barrel exports; add new public API there.
+- `files` ships `dist/lib`, the schema and the spec. `sideEffects: false`.
+- The emitted `.d.ts` files keep the `.ts` import specifiers (`rewriteRelativeImportExtensions` rewrites JavaScript only). That is fine: a packed tarball installed into a scratch consumer type-checked under both `nodenext` and `bundler` resolution, with and without `skipLibCheck`, and ran in plain Node. Do not add a post-processing step for it.
+
 ## Tooling constraints
 
-- Vite runs entirely on defaults — there is no `vite.config.*`. Entry is `index.html` → `/src/main.ts`; `public/` is served at the site root (`/favicon.svg`).
-- `tsconfig.json` is the only build config. Flags that shape how code must be written:
+- Vite runs entirely on defaults — there is no `vite.config.*`. Entry is `index.html` → `/src/main.ts`; `public/` is served at the site root (`/favicon.svg`). The site's output directory is given on the command line (`dist/site`).
+- Two tsconfigs. `tsconfig.json` is the type-check / test / demo config (`noEmit`). `tsconfig.lib.json` extends it for the library emit: `src/rsl` only, tests excluded, `rootDir` `src/rsl`, `outDir` `dist/lib`, `lib` without DOM, and `rewriteRelativeImportExtensions` so the `.ts` extensions in source imports become `.js` in the output. Nothing under `src/rsl/` (tests aside) may use DOM globals or import from outside `src/rsl/`. Flags that shape how code must be written:
   - `verbatimModuleSyntax` — use `import type` for type-only imports.
   - `allowImportingTsExtensions` — local imports use explicit `.ts` extensions (`import { x } from './types.ts'`).
   - `erasableSyntaxOnly` — no `enum`, no runtime `namespace`, no constructor parameter properties; use string-literal unions, `as const` objects, and plain classes instead.
