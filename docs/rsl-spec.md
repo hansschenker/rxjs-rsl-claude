@@ -84,7 +84,7 @@ Defaults are deliberately ASL-faithful: no shaping, `merge`, `forkJoin`, `array`
 - **Choice rules and `Filter` tests**: ASL JSONPath-mode data tests, v0 subset: `Variable` + one of `StringEquals`, `StringLessThan`, `StringGreaterThan`, `NumericEquals`, `NumericLessThan`, `NumericGreaterThan`, `NumericLessThanEquals`, `NumericGreaterThanEquals`, `BooleanEquals`, `IsPresent`, `IsNull`; combinators `And`, `Or`, `Not`. Plus `Condition`.
 - **Paths** (`InputPath`, `OutputPath`, `ResultPath`, `ItemsPath`, `Variable`, `SecondsPath`, `TimestampPath`): JSONPath subset `$`, `$.a.b`, `$.a[0]`. A 30-line getter/setter, no dependency. `ResultPath` keeps ASL semantics: the result is inserted into the *original* (pre-`InputPath`) input at that path (this is what lets a polling loop keep its job id, see §8).
 - **ASL defaults kept**: Retrier `IntervalSeconds: 1`, `MaxAttempts: 3`, `BackoffRate: 2.0`; Catcher `ResultPath: "$"` (the error object replaces the input); Map `ItemsPath: "$"`; `States.ALL` must be the last Retrier/Catcher and alone in its `ErrorEquals`. Each Retrier keeps its own attempt counter per token, as in ASL.
-- **Error names** (`ErrorEquals`): match `error.name`; `States.ALL` matches everything, `States.Timeout` matches RxJS `TimeoutError`.
+- **Error names** (`ErrorEquals`): match `error.name`; `States.ALL` matches everything, `States.Timeout` matches RxJS `TimeoutError`. A Catcher's error token is `{ Error, Cause }` with `Error` the name as `ErrorEquals` sees it (`States.Timeout` for a `TimeoutError`, otherwise `error.name`) and `Cause` the error's message.
 - **Reserved, not implemented in v0**: `QueryLanguage` (only `"JSONPath"` accepted), `Assign`/variables, `Parameters`/`ResultSelector` templating, `Output` (JSONata form), `HeartbeatSeconds`, machine-level `TimeoutSeconds`.
 
 ## 7. Errors, cancellation, ordering, completion
@@ -236,6 +236,51 @@ Input `{ id }` → `GetStatus` calls the resource with `id` and stores the resul
 
 = `mergeMap((id) => forkJoin([getUser(id), getOrders(id)]).pipe(map(toProfile)))`. Change `Join` to `"combineLatest"` and the branches may be live streams; the profile then re-emits whenever either side updates. That one field is the whole difference between a request and a subscription.
 
+### Checkout
+
+A business flow rather than an operator idiom: validate an order, charge it, notify. It is the example that exercises Task end to end (registry resources, `Concurrency`, `TimeoutSeconds`, `Retry` with backoff, `Catch` with `ResultPath`, custom error names) and the acceptance test for that slice (§12).
+
+```json
+{
+  "Comment": "Validate each order, charge it one at a time (retrying on timeout with backoff), then notify. Any failure ends in Reject with the error beside the order.",
+  "StartAt": "Validate",
+  "States": {
+    "Validate": {
+      "Type": "Task",
+      "Resource": "validate",
+      "Catch": [{ "ErrorEquals": ["ValidationError"], "Next": "Reject", "ResultPath": "$.error" }],
+      "Next": "Charge"
+    },
+    "Charge": {
+      "Type": "Task",
+      "Resource": "charge",
+      "Concurrency": "concat",
+      "TimeoutSeconds": 5,
+      "Retry": [{ "ErrorEquals": ["States.Timeout"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2 }],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Reject", "ResultPath": "$.error" }],
+      "Next": "Notify"
+    },
+    "Notify": { "Type": "Task", "Resource": "notify", "End": true },
+    "Reject": { "Type": "Task", "Resource": "reject", "End": true }
+  }
+}
+```
+
+- Validate's Catcher matches only `ValidationError`, the name the resource throws with; any other error is uncaught and goes to `OnError`.
+- `ResultPath: "$.error"` on both Catchers inserts `{ Error, Cause }` beside the order instead of replacing it, so Reject still knows which order failed.
+- Charge is `concat`: one charge at a time, in arrival order, none lost. `exhaust` would drop orders arriving mid-charge; `switch` would cancel a charge in flight.
+- A charge that has not answered within 5 s times out; the Retrier re-runs it after 1, 2 and 4 s; the fourth timeout goes to the `States.ALL` Catcher, so Reject sees `{ Error: "States.Timeout" }`.
+
+The registry (`checkoutRegistry` in `src/rsl/examples.ts`): `validate` throws `ValidationError` for a non-positive amount, `charge` answers after a short delay with a payment id, `notify` and `reject` tag the token. Pipe view:
+
+```
+source → Validate
+Validate: mergeMap(validate) → catchError(→ Reject) → Charge
+Charge: concatMap(charge) → timeout({ first: 5000 }) → retry(3 on States.Timeout) → catchError(→ Reject) → Notify
+Notify: mergeMap(notify) → output
+Reject: mergeMap(reject) → output
+```
+
 ## 9. Runtime model
 
 One Subject per state; wiring is subscriptions; unsubscribe tears everything down. Errors never travel on a node's outer pipe.
@@ -282,7 +327,7 @@ export function compile<I, O>(
 | `drop` | `policy` | a policy suppressed the token: `Filter`, `Debounce`, `Throttle`, `DistinctUntilChanged`, or `Concurrency` when `exhaust` ignores a newcomer |
 | `error` | `error`, `onError` | the token's error reached the machine's `OnError` (after Retry and Catch): `drop` ends the token, `fail` errors the output stream |
 | `cancel` | `reason` | in-flight work for the token was abandoned: `unsubscribe` (the machine was torn down while the token was pending in a debounce timer, a Wait or a resource) or `switch` (a newer token superseded it) |
-| `retry` | `attempt`, `error` | a Retrier is about to re-run the resource; `attempt` is 1 for the first retry |
+| `retry` | `attempt`, `error` | a Retrier caught the error and scheduled another run of the resource, reported at the moment of the error; `attempt` is 1 for the first retry |
 | `catch` | `error`, `target` | a Catcher routed the error token to `target`; takes the place of `out` for that token |
 
 A token's life at a state is therefore `in`, then exactly one of `out`, `catch`, `drop`, `error` or `cancel`, with any number of `retry` events in between. The current slice emits `in`, `out`, `drop`, `error` and `cancel` (debounce timers at teardown); `retry`, `catch` and the remaining `cancel` / `drop` sources arrive with Task.
@@ -315,7 +360,7 @@ Why this model over the alternatives: a pure "compile the graph to one `pipe()`"
 
 ## 12. Implementation order
 
-1. **Core** (done except Task, see `src/rsl/compile.ts`): Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`.
+1. **Core** (done except Task, see `src/rsl/compile.ts`): Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`. The checkout example (§8) and the four `Concurrency` marble tests in `src/rsl/task.test.ts` are this slice's acceptance tests: they are gated on the runtime accepting a Task state, skipped until then, and run unchanged once it does; the checkout golden trace (§9) appears on the first green run.
 2. **Wait + cycles**: `queueScheduler` trampolining, the feedback-token pitfall. Test: the polling example.
 3. **Parallel + `Join`, Map + `Collect`**. Test: the profile example with `forkJoin` and `combineLatest`.
 4. **Live marbles**: wire the `trace` hook to a per-state marble view. `toMermaid` and `toPipeView` already exist.

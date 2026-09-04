@@ -53,7 +53,7 @@ export type TraceEvent = TraceBase &
     | { readonly kind: 'error'; readonly error: unknown; readonly onError: 'fail' | 'drop' }
     /** In-flight work for the token was abandoned. */
     | { readonly kind: 'cancel'; readonly reason: CancelReason }
-    /** A Retrier is about to re-run the resource; `attempt` is 1 for the first retry. */
+    /** A Retrier caught the error and scheduled another run of the resource, reported at the moment of the error; `attempt` is 1 for the first retry. */
     | { readonly kind: 'retry'; readonly attempt: number; readonly error: unknown }
     /** A Catcher routed the error token to `target`; takes the place of `out` for that token. */
     | { readonly kind: 'catch'; readonly error: unknown; readonly target: string }

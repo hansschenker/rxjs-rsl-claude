@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toMermaid } from './diagram.ts';
-import { examples, liveSearch, mapFilter, polling, profile } from './examples.ts';
+import { checkout, examples, liveSearch, mapFilter, polling, profile } from './examples.ts';
 import { toPipeView } from './pipeview.ts';
 import { validate } from './validate.ts';
 
@@ -33,6 +33,18 @@ describe('toPipeView', () => {
     expect(view).toContain('IsDone: route($.job.status == "done" → Finished, default → Pause)');
     expect(view).toContain('Pause: delay(2000) → GetStatus');
   });
+
+  it('renders the checkout example as the pipe the spec shows', () => {
+    expect(toPipeView(checkout)).toBe(
+      [
+        'source → Validate',
+        'Validate: mergeMap(validate) → catchError(→ Reject) → Charge',
+        'Charge: concatMap(charge) → timeout({ first: 5000 }) → retry(3 on States.Timeout) → catchError(→ Reject) → Notify',
+        'Notify: mergeMap(notify) → output',
+        'Reject: mergeMap(reject) → output',
+      ].join('\n'),
+    );
+  });
 });
 
 describe('toMermaid', () => {
@@ -61,6 +73,8 @@ describe('toMermaid', () => {
 
   it('draws Catch as a dashed edge and escapes comparison operators', () => {
     expect(toMermaid(liveSearch)).toContain('-.->|"States.ALL"| m_Fallback');
+    expect(toMermaid(checkout)).toContain('m_Validate -.->|"ValidationError"| m_Reject');
+    expect(toMermaid(checkout)).toContain('m_Charge -.->|"States.ALL"| m_Reject');
     expect(toMermaid(mapFilter)).toContain('filter: $ #62; 6');
   });
 });

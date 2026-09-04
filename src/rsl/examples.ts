@@ -1,4 +1,6 @@
-import type { Registry, RslMachine } from './types.ts';
+import { map, of, timer } from 'rxjs';
+import { StateError } from './errors.ts';
+import type { Registry, ResourceFn, RslMachine } from './types.ts';
 
 /**
  * The spec's example documents, type-checked against the schema.
@@ -74,6 +76,60 @@ export const profile: RslMachine = {
   },
 };
 
+/**
+ * Checkout: a business flow that exercises Task end to end. Validate each order,
+ * charge it one at a time (retrying on timeout with backoff), then notify; any
+ * failure ends in Reject with the error beside the order (spec §8).
+ */
+export const checkout: RslMachine = {
+  Comment:
+    'Validate each order, charge it one at a time (retrying on timeout with backoff), then notify. Any failure ends in Reject with the error beside the order.',
+  StartAt: 'Validate',
+  States: {
+    Validate: {
+      Type: 'Task',
+      Resource: 'validate',
+      Catch: [{ ErrorEquals: ['ValidationError'], Next: 'Reject', ResultPath: '$.error' }],
+      Next: 'Charge',
+    },
+    Charge: {
+      Type: 'Task',
+      Resource: 'charge',
+      Concurrency: 'concat',
+      TimeoutSeconds: 5,
+      Retry: [{ ErrorEquals: ['States.Timeout'], IntervalSeconds: 1, MaxAttempts: 3, BackoffRate: 2 }],
+      Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Reject', ResultPath: '$.error' }],
+      Next: 'Notify',
+    },
+    Notify: { Type: 'Task', Resource: 'notify', End: true },
+    Reject: { Type: 'Task', Resource: 'reject', End: true },
+  },
+};
+
+export interface Order {
+  id: string;
+  amount: number;
+  email: string;
+}
+
+/**
+ * The checkout resources. `validate` throws synchronously (the runtime wraps
+ * every resource in `defer`, so that is an error notification, not a crash);
+ * `charge` answers after a short delay; `notify` and `reject` tag the token.
+ */
+export const checkoutResources: Record<'validate' | 'charge' | 'notify' | 'reject', ResourceFn> = {
+  validate: (input) => {
+    const order = input as Order;
+    if (!(order.amount > 0)) throw new StateError('ValidationError', `order ${order.id}: amount must be positive`);
+    return of({ ...order, valid: true });
+  },
+  charge: (input) => timer(10).pipe(map(() => ({ ...(input as Order), paymentId: `pay_${(input as Order).id}` }))),
+  notify: (input) => of({ ...(input as object), notified: true }),
+  reject: (input) => of({ ...(input as object), rejected: true }),
+};
+
+export const checkoutRegistry: Registry = { resources: checkoutResources };
+
 /** An example document plus, once the runtime supports its states, an input and registry to run it with. */
 export interface Example {
   name: string;
@@ -90,4 +146,16 @@ export const examples: ReadonlyArray<Example> = [
   { name: 'Live search', machine: liveSearch },
   { name: 'Polling loop', machine: polling },
   { name: 'Parallel profile', machine: profile },
+  {
+    name: 'Checkout',
+    machine: checkout,
+    // One good order and one that fails validation, so the trace shows both paths.
+    run: {
+      input: [
+        { id: 'ord_1', amount: 49, email: 'ada@example.com' },
+        { id: 'ord_2', amount: 0, email: 'bob@example.com' },
+      ] satisfies Order[],
+      registry: checkoutRegistry,
+    },
+  },
 ];

@@ -3,6 +3,7 @@ import mermaid from 'mermaid';
 import { from, toArray } from 'rxjs';
 import { compile } from './rsl/compile.ts';
 import { toMermaid } from './rsl/diagram.ts';
+import { RslError } from './rsl/errors.ts';
 import { examples } from './rsl/examples.ts';
 import type { Example } from './rsl/examples.ts';
 import { toPipeView } from './rsl/pipeview.ts';
@@ -54,7 +55,9 @@ function runBlock(example: Example): HTMLPreElement {
         },
       });
   } catch (error) {
-    pre.textContent = `compile error: ${String(error)}`;
+    const pending = error instanceof RslError && error.message.includes('not implemented');
+    const message = error instanceof Error ? error.message : String(error);
+    pre.textContent = `${pending ? 'not run yet' : 'compile error'}: ${message}`;
   }
   return pre;
 }
