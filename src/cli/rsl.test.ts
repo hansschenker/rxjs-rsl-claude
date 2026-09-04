@@ -19,7 +19,13 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'rsl-cli-'));
   await writeFile(join(dir, 'map-filter.json'), JSON.stringify(mapFilter, null, 2));
   await writeFile(join(dir, 'checkout.json'), JSON.stringify(checkout, null, 2));
-  await writeFile(join(dir, 'wait.json'), JSON.stringify({ StartAt: 'W', States: { W: { Type: 'Wait', Seconds: 1, End: true } } }));
+  await writeFile(
+    join(dir, 'parallel.json'),
+    JSON.stringify({
+      StartAt: 'P',
+      States: { P: { Type: 'Parallel', Branches: [{ StartAt: 'A', States: { A: { Type: 'Succeed' } } }], End: true } },
+    }),
+  );
   await writeFile(
     join(dir, 'broken.json'),
     JSON.stringify({ StartAt: 'A', States: { A: { Type: 'Pass', Next: 'Nowhere', Bogus: 1 } } }),
@@ -131,9 +137,9 @@ describe('rsl run', () => {
   });
 
   it('fails with the runtime message for states the runtime does not implement yet', async () => {
-    const result = await rsl(dir, 'run', 'wait.json', '--registry', 'registry.mjs', '--input', 'input.json');
+    const result = await rsl(dir, 'run', 'parallel.json', '--registry', 'registry.mjs', '--input', 'input.json');
     expect(result.code).toBe(1);
-    expect(result.err[0]).toContain('Type "Wait" is not implemented');
+    expect(result.err[0]).toContain('Type "Parallel" is not implemented');
   });
 
   it('fails with the registry message when a resource is missing', async () => {

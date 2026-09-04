@@ -31,16 +31,16 @@ import { getPath, setPath } from './paths.ts';
 import type { CompileArgs } from './registry.ts';
 import { OUTPUT } from './trace.ts';
 import type { CancelReason, DropPolicy, Token, TraceBase, TraceEvent } from './trace.ts';
-import type { Catcher, Concurrency, Registry, Retrier, RslMachine, RslState, Shaping } from './types.ts';
+import type { Catcher, Concurrency, Registry, Retrier, RslMachine, RslState, Shaping, WaitState } from './types.ts';
 import { assertValid } from './validate.ts';
 
 /**
  * The RSL runtime (spec §9): one Subject per state, wiring by subscription,
  * errors resolved per token, completion by alive-token counting.
  *
- * Implemented: Pass, Task, Choice, Succeed, Fail, the four shaping policies,
- * `OnError`, and the JSONPath subset. Wait, Parallel and Map are rejected at
- * compile time until their slices land.
+ * Implemented: Pass, Task, Wait, Choice, Succeed, Fail, the four shaping
+ * policies, `OnError`, and the JSONPath subset. Parallel and Map are rejected
+ * at compile time until their slices land.
  *
  * Two phases. `planMachine` runs once per `compile`: validation, registry
  * resolution, and for a Task whose Resource is a machine, the nested plan.
@@ -57,7 +57,7 @@ export interface CompileOptions {
 
 type OnError = 'fail' | 'drop';
 
-const IMPLEMENTED: ReadonlySet<RslState['Type']> = new Set(['Pass', 'Task', 'Choice', 'Succeed', 'Fail']);
+const IMPLEMENTED: ReadonlySet<RslState['Type']> = new Set(['Pass', 'Task', 'Wait', 'Choice', 'Succeed', 'Fail']);
 
 interface Plan {
   readonly startAt: string;
@@ -403,7 +403,7 @@ function planState(name: string, state: RslState, registry: Registry, onError: O
   const where = `State "${name}"`;
   if (!IMPLEMENTED.has(state.Type)) {
     throw new RslError(
-      `${where}: Type "${state.Type}" is not implemented in this runtime yet (implemented: Pass, Task, Choice, Succeed, Fail)`,
+      `${where}: Type "${state.Type}" is not implemented in this runtime yet (implemented: Pass, Task, Wait, Choice, Succeed, Fail)`,
     );
   }
   const keep = state.Filter === undefined ? undefined : compileTest(state.Filter, registry, `${where} Filter`);
@@ -455,6 +455,35 @@ function planState(name: string, state: RslState, registry: Registry, onError: O
         },
       };
     }
+    case 'Wait': {
+      // Spec §3: `mergeMap(t => timer(due(t)).pipe(map(() => t)))`. A Task whose resource is the timer,
+      // so it shares the Task's token accounting and its `cancel` at teardown. No Catch, Retry or Concurrency (v0).
+      const due = waitDue(state, where);
+      const { InputPath, OutputPath } = state;
+      return {
+        ...base,
+        kind: 'task',
+        task: {
+          resource: {
+            kind: 'fn',
+            fn: (raw) => {
+              const input = select(raw, InputPath);
+              return timer(due(input)).pipe(map(() => input));
+            },
+          },
+          concurrency: 'merge',
+          maxConcurrency: Infinity,
+          take: undefined,
+          timeoutMs: undefined,
+          retriers: [],
+          catchers: [],
+          inputPath: undefined,
+          resultPath: undefined,
+          outputPath: OutputPath,
+          target: state.Next ?? OUTPUT,
+        },
+      };
+    }
     case 'Succeed': {
       const { InputPath, OutputPath } = state;
       return {
@@ -500,6 +529,43 @@ function planState(name: string, state: RslState, registry: Registry, onError: O
 
 function select(value: unknown, path: string | undefined): unknown {
   return path === undefined ? value : getPath(value, path);
+}
+
+/**
+ * How long a Wait holds a token, in ms. `Seconds` and `Timestamp` are fixed
+ * (a bad `Timestamp` fails at compile time); `SecondsPath` and `TimestampPath`
+ * read the token, and a value that is not a duration or a time is a per-token
+ * `States.Runtime` error resolved by `OnError`. A time in the past waits 0 ms.
+ */
+function waitDue(state: WaitState, where: string): RuntimeFn<number> {
+  if (state.Seconds !== undefined) {
+    const ms = state.Seconds * 1000;
+    return () => ms;
+  }
+  if (state.Timestamp !== undefined) {
+    const at = Date.parse(state.Timestamp);
+    if (Number.isNaN(at)) throw new RslError(`${where}: Timestamp "${state.Timestamp}" is not a valid date`);
+    return () => Math.max(0, at - asyncScheduler.now());
+  }
+  if (state.SecondsPath !== undefined) {
+    const path = state.SecondsPath;
+    return (input) => {
+      const seconds = getPath(input, path);
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+        throw new StateError('States.Runtime', `${where}: SecondsPath ${path} is ${JSON.stringify(seconds)}, not a duration`);
+      }
+      return seconds * 1000;
+    };
+  }
+  const path = state.TimestampPath;
+  return (input) => {
+    const raw = getPath(input, path);
+    const at = typeof raw === 'number' ? raw : typeof raw === 'string' ? Date.parse(raw) : Number.NaN;
+    if (Number.isNaN(at)) {
+      throw new StateError('States.Runtime', `${where}: TimestampPath ${path} is ${JSON.stringify(raw)}, not a time`);
+    }
+    return Math.max(0, at - asyncScheduler.now());
+  };
 }
 
 // --- input shaping (run time) ------------------------------------------------

@@ -131,10 +131,10 @@ one line per event as they happen.
 ## Status
 
 The runtime runs Pass, Task (resources, `Concurrency`, `TimeoutSeconds`,
-`Retry`, `Catch`, `Take`, nested machines), Choice, Succeed, Fail, all four
-shaping policies, `OnError`, and cycles. Wait, Parallel and Map are
-specified, rendered and validated but rejected by the runtime until their
-slices land. See spec §12 for the order of work.
+`Retry`, `Catch`, `Take`, nested machines), Wait (all four timing fields),
+Choice, Succeed, Fail, all four shaping policies, `OnError`, and cycles.
+Parallel and Map are specified, rendered and validated but rejected by the
+runtime until their slices land. See spec §12 for the order of work.
 
 ## License
 

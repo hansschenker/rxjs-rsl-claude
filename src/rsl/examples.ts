@@ -138,6 +138,28 @@ export const checkoutResources = {
 
 export const checkoutRegistry = { resources: checkoutResources } satisfies RegistryFor<typeof checkout>;
 
+/** Poll counts per job for the polling example's resource. */
+const polls = new Map<string, number>();
+
+/**
+ * The polling example's resource: a job reports `running` twice and `done`
+ * on the third poll, then starts over, so every run of the example (demo,
+ * golden trace, tests) sees the same three polls.
+ */
+export const pollingRegistry = {
+  resources: {
+    getJobStatus: (id: string) => {
+      const count = (polls.get(id) ?? 0) + 1;
+      if (count < 3) {
+        polls.set(id, count);
+        return of({ status: 'running', polls: count });
+      }
+      polls.delete(id);
+      return of({ status: 'done', polls: count });
+    },
+  },
+} satisfies RegistryFor<typeof polling>;
+
 /** An example document plus, once the runtime supports its states, an input and registry to run it with. */
 export interface Example {
   name: string;
@@ -165,7 +187,7 @@ export const examples: ReadonlyArray<Example> = [
       },
     },
   },
-  { name: 'Polling loop', machine: polling },
+  { name: 'Polling loop', machine: polling, run: { input: [{ id: 'job-1' }], registry: pollingRegistry } },
   { name: 'Parallel profile', machine: profile },
   {
     name: 'Checkout',

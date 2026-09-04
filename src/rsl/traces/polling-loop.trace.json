@@ -1,0 +1,259 @@
+[
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1"
+    },
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 0,
+    "kind": "out",
+    "target": "IsDone"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 0,
+    "kind": "out",
+    "target": "Pause"
+  },
+  {
+    "run": "",
+    "state": "Pause",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Pause",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 2000,
+    "kind": "out",
+    "target": "GetStatus"
+  },
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 1
+      }
+    },
+    "at": 2000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 2000,
+    "kind": "out",
+    "target": "IsDone"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 2000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 2000,
+    "kind": "out",
+    "target": "Pause"
+  },
+  {
+    "run": "",
+    "state": "Pause",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 2000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Pause",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 4000,
+    "kind": "out",
+    "target": "GetStatus"
+  },
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "running",
+        "polls": 2
+      }
+    },
+    "at": 4000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "GetStatus",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "done",
+        "polls": 3
+      }
+    },
+    "at": 4000,
+    "kind": "out",
+    "target": "IsDone"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "done",
+        "polls": 3
+      }
+    },
+    "at": 4000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "IsDone",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "done",
+        "polls": 3
+      }
+    },
+    "at": 4000,
+    "kind": "out",
+    "target": "Finished"
+  },
+  {
+    "run": "",
+    "state": "Finished",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "done",
+        "polls": 3
+      }
+    },
+    "at": 4000,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Finished",
+    "tokenId": 0,
+    "value": {
+      "id": "job-1",
+      "job": {
+        "status": "done",
+        "polls": 3
+      }
+    },
+    "at": 4000,
+    "kind": "out",
+    "target": "$output"
+  }
+]

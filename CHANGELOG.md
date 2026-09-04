@@ -35,9 +35,10 @@ everything below is unreleased, and the first publish becomes 0.1.0.
   Implemented: Pass, Task (resources, `Concurrency` with `MaxConcurrency`,
   `TimeoutSeconds`, `Retry` with one counter per Retrier and `MaxDelaySeconds`,
   `Catch` with `ResultPath`, `Take`, a machine as Resource with a prefixed
-  trace and inherited `OnError`), Choice, Succeed, Fail, the four shaping
-  policies, `OnError`, the JSONPath subset. Wait, Parallel and Map are
-  rejected at compile time.
+  trace and inherited `OnError`), Wait (`Seconds`, `Timestamp`,
+  `SecondsPath`, `TimestampPath`; cancelled at teardown), Choice, Succeed,
+  Fail, the four shaping policies, `OnError`, the JSONPath subset. Parallel
+  and Map are rejected at compile time.
 - Trace events (`in`, `out`, `drop`, `error`, `cancel`, `retry`, `catch`)
   with a `run` field reserved for nested machines, `traceLine` formatting,
   and golden traces under `src/rsl/traces/`.

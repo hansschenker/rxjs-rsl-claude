@@ -3,9 +3,9 @@ import { TestScheduler } from 'rxjs/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { compile } from './compile.ts';
 import { RslError, StateError } from './errors.ts';
-import { mapFilter } from './examples.ts';
+import { mapFilter, polling, pollingRegistry } from './examples.ts';
 import type { TraceEvent } from './trace.ts';
-import type { Registry, RslMachine, RslState } from './types.ts';
+import type { Common, Registry, RslMachine, RslState, WaitTiming } from './types.ts';
 
 const registry: Registry = { transforms: { double: (n: number) => n * 2 } };
 
@@ -81,8 +81,16 @@ describe('compile: compile-time errors', () => {
   });
 
   it('rejects state types the runtime does not implement yet', () => {
-    const machine: RslMachine = { StartAt: 'W', States: { W: { Type: 'Wait', Seconds: 1, End: true } } };
-    expect(() => compile(machine)).toThrow('Type "Wait" is not implemented');
+    const machine: RslMachine = {
+      StartAt: 'P',
+      States: { P: { Type: 'Parallel', Branches: [{ StartAt: 'A', States: { A: { Type: 'Succeed' } } }], End: true } },
+    };
+    expect(() => compile(machine)).toThrow('Type "Parallel" is not implemented');
+  });
+
+  it('rejects a Wait whose constant Timestamp is not a date', () => {
+    const machine: RslMachine = { StartAt: 'W', States: { W: { Type: 'Wait', Timestamp: 'someday', End: true } } };
+    expect(() => compile(machine)).toThrow('Timestamp "someday" is not a valid date');
   });
 
   it('rejects a missing resource name and a resource that is neither a function nor a machine', () => {
@@ -448,5 +456,100 @@ describe('compile: Task', () => {
 
     const failingOuter: RslMachine = { ...dropping, OnError: 'fail' };
     await expect(lastValueFrom(from([1]).pipe(compile(failingOuter, registry)))).rejects.toMatchObject({ name: 'Inner' });
+  });
+});
+
+describe('compile: Wait', () => {
+  const wait = (timing: WaitTiming & Pick<Common, 'InputPath' | 'OutputPath'>): RslMachine => ({
+    StartAt: 'W',
+    States: { W: { Type: 'Wait', End: true, ...timing } },
+  });
+
+  it('holds each token for Seconds, passing it through', () => {
+    marbles().run(({ cold, expectObservable }) => {
+      expectObservable(cold('a-b|').pipe(compile(wait({ Seconds: 1 })))).toBe('1s a-(b|)');
+    });
+  });
+
+  it('reads the duration from the token with SecondsPath, so tokens may overtake each other', () => {
+    marbles().run(({ cold, expectObservable }) => {
+      const source = cold('ab|', { a: { wait: 2 }, b: { wait: 1 } });
+      expectObservable(source.pipe(compile(wait({ SecondsPath: '$.wait' })))).toBe('1001ms b 998ms (a|)', {
+        a: { wait: 2 },
+        b: { wait: 1 },
+      });
+    });
+  });
+
+  it('waits until an absolute Timestamp, or not at all when it has passed', () => {
+    marbles().run(({ cold, expectObservable }) => {
+      const at5s = wait({ Timestamp: new Date(5000).toISOString() });
+      expectObservable(cold('a|').pipe(compile(at5s))).toBe('5s (a|)');
+    });
+    marbles().run(({ cold, expectObservable }) => {
+      const source = cold('a|', { a: { until: new Date(0).toISOString() } });
+      expectObservable(source.pipe(compile(wait({ TimestampPath: '$.until' })))).toBe('a|', {
+        a: { until: new Date(0).toISOString() },
+      });
+    });
+  });
+
+  it('applies InputPath and OutputPath around the wait', async () => {
+    const machine = wait({ Seconds: 0, InputPath: '$.inner', OutputPath: '$.value' });
+    expect(await lastValueFrom(of({ inner: { value: 7 }, other: 1 }).pipe(compile(machine)))).toBe(7);
+  });
+
+  it('turns a token whose path is not a duration into a States.Runtime error for OnError', async () => {
+    const machine: RslMachine = { ...wait({ SecondsPath: '$.wait' }), OnError: 'drop' };
+    const events: TraceEvent[] = [];
+    const op = compile(machine, {}, { trace: (e) => void events.push(e) });
+    expect(await lastValueFrom(from([{ wait: 0 }, { wait: 'soon' }, { wait: -1 }]).pipe(op, toArray()))).toEqual([
+      { wait: 0 },
+    ]);
+    expect(events.filter((e) => e.kind === 'error')).toMatchObject([
+      { tokenId: 1, onError: 'drop', error: expect.objectContaining({ name: 'States.Runtime' }) },
+      { tokenId: 2, onError: 'drop', error: expect.objectContaining({ name: 'States.Runtime' }) },
+    ]);
+  });
+
+  it('reports a token still waiting at unsubscribe as cancelled', () => {
+    const events: TraceEvent[] = [];
+    marbles().run(({ cold, expectObservable }) => {
+      const op = compile(wait({ Seconds: 1 }), {}, { trace: (e) => void events.push(e) });
+      expectObservable(cold('a---------').pipe(op), '---!').toBe('----');
+    });
+    expect(events.map((e) => e.kind)).toEqual(['in', 'cancel']);
+    expect(events[1]).toMatchObject({ state: 'W', tokenId: 0, at: 3, reason: 'unsubscribe' });
+  });
+
+  it('runs the polling example: Task → Choice → Wait → Task until the job is done', () => {
+    const events: TraceEvent[] = [];
+    marbles().run(({ cold, expectObservable }) => {
+      const op = compile(polling, pollingRegistry, { trace: (e) => void events.push(e) });
+      // Three polls two seconds apart: running at 0 and 2 s, done at 4 s.
+      expectObservable(cold('a|', { a: { id: 'job-t' } }).pipe(op)).toBe('4s (a|)', {
+        a: { id: 'job-t', job: { status: 'done', polls: 3 } },
+      });
+    });
+    expect(events.filter((e) => e.kind === 'out' && e.state === 'Pause').map((e) => e.at)).toEqual([2000, 4000]);
+    expect(events.filter((e) => e.kind === 'in' && e.state === 'GetStatus')).toHaveLength(3);
+  });
+
+  it('polls one job at a time when the loop is wrapped in a Task with exhaust (spec §8)', () => {
+    const outer: RslMachine = {
+      StartAt: 'Poll',
+      States: { Poll: { Type: 'Task', Resource: 'poller', Concurrency: 'exhaust', End: true } },
+    };
+    const registry: Registry = { resources: { ...pollingRegistry.resources, poller: polling } };
+    const events: TraceEvent[] = [];
+    marbles().run(({ cold, expectObservable }) => {
+      const op = compile(outer, registry, { trace: (e) => void events.push(e) });
+      const source = cold('ab|', { a: { id: 'job-a' }, b: { id: 'job-b' } });
+      expectObservable(source.pipe(op)).toBe('4s (a|)', { a: { id: 'job-a', job: { status: 'done', polls: 3 } } });
+    });
+    expect(events.filter((e) => e.kind === 'drop')).toMatchObject([
+      { state: 'Poll', tokenId: 1, at: 1, policy: 'Concurrency' },
+    ]);
+    expect(events.filter((e) => e.run !== '').every((e) => e.run === 'States.Poll.Resource#0')).toBe(true);
   });
 });
