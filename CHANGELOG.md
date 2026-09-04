@@ -32,9 +32,12 @@ everything below is unreleased, and the first publish becomes 0.1.0.
 - `compile(machine, registry, options)` turns a document into an RxJS
   operator: one Subject per state, trampolined delivery so cycles iterate,
   errors resolved per token, completion by an alive-token counter.
-  Implemented: Pass, Choice, Succeed, Fail, the four shaping policies,
-  `OnError`, the JSONPath subset. Task, Wait, Parallel and Map are rejected at
-  compile time; the Task slice's acceptance tests are in place and gated.
+  Implemented: Pass, Task (resources, `Concurrency` with `MaxConcurrency`,
+  `TimeoutSeconds`, `Retry` with one counter per Retrier and `MaxDelaySeconds`,
+  `Catch` with `ResultPath`, `Take`, a machine as Resource with a prefixed
+  trace and inherited `OnError`), Choice, Succeed, Fail, the four shaping
+  policies, `OnError`, the JSONPath subset. Wait, Parallel and Map are
+  rejected at compile time.
 - Trace events (`in`, `out`, `drop`, `error`, `cancel`, `retry`, `catch`)
   with a `run` field reserved for nested machines, `traceLine` formatting,
   and golden traces under `src/rsl/traces/`.

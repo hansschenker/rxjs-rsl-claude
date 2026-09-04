@@ -1,8 +1,7 @@
-import { NEVER, map, of, timer } from 'rxjs';
+import { NEVER, map, timer } from 'rxjs';
 import { TestScheduler } from 'rxjs/testing';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.ts';
-import { RslError } from './errors.ts';
 import { checkout, checkoutRegistry, checkoutResources } from './examples.ts';
 import type { Order, Validated } from './examples.ts';
 import type { RegistryFor } from './registry.ts';
@@ -10,33 +9,17 @@ import type { TraceEvent } from './trace.ts';
 import type { Concurrency, Registry, RslMachine } from './types.ts';
 
 /**
- * Acceptance tests for the Task slice (spec §12 step 1), written before it
- * lands. Everything below the gate is skipped while the runtime rejects Task
- * states and runs unchanged once it accepts them; the one test above the gate
- * documents today's rejection and retires itself at that same moment.
+ * Acceptance tests for the Task slice (spec §12 step 1): the four
+ * `Concurrency` policies on a slow resource, and the checkout example end to
+ * end (Catch with ResultPath, TimeoutSeconds, Retry with backoff, concat).
+ * Written before the slice landed; they ran unchanged once it did.
  */
-
-/** Does the runtime compile a Task state yet? Any other compile failure is a real error. */
-const taskReady = ((): boolean => {
-  const probe: RslMachine = { StartAt: 'T', States: { T: { Type: 'Task', Resource: 'probe', End: true } } };
-  try {
-    compile(probe, { resources: { probe: (value: unknown) => of(value) } });
-    return true;
-  } catch (error) {
-    if (error instanceof RslError && error.message.includes('not implemented')) return false;
-    throw error;
-  }
-})();
 
 function marbles(): TestScheduler {
   return new TestScheduler((actual, expected) => expect(actual).toEqual(expected));
 }
 
-it.skipIf(taskReady)('the runtime rejects Task states until the Task slice lands', () => {
-  expect(() => compile(checkout, checkoutRegistry)).toThrow('Type "Task" is not implemented');
-});
-
-describe.runIf(taskReady)('Task: Concurrency', () => {
+describe('Task: Concurrency', () => {
   /** One Task whose resource takes 10 frames and echoes its input. */
   const machine = (mode: Concurrency): RslMachine => ({
     StartAt: 'Slow',
@@ -79,7 +62,7 @@ describe.runIf(taskReady)('Task: Concurrency', () => {
   });
 });
 
-describe.runIf(taskReady)('Task: the checkout example', () => {
+describe('Task: the checkout example', () => {
   const order = (id: string, amount = 49): Order => ({ id, amount, email: `${id}@example.com` });
   const validated = (o: Order): object => ({ ...o, valid: true });
   const charged = (o: Order): object => ({ ...validated(o), paymentId: `pay_${o.id}` });
@@ -112,7 +95,8 @@ describe.runIf(taskReady)('Task: the checkout example', () => {
     const bad = order('ord_2', 0);
     marbles().run(({ cold, expectObservable }) => {
       const op = compile(checkout, checkoutRegistry, { trace: (e) => void events.push(e) });
-      expectObservable(cold('a|', { a: bad }).pipe(op)).toBe('(a|)', {
+      // Rejected synchronously at frame 0; the machine completes with its source, one frame later.
+      expectObservable(cold('a|', { a: bad }).pipe(op)).toBe('a|', {
         a: { ...bad, error: { Error: 'ValidationError', Cause: 'order ord_2: amount must be positive' }, rejected: true },
       });
     });

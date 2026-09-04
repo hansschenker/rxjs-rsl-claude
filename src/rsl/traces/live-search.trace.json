@@ -1,0 +1,59 @@
+[
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 0,
+    "value": "r",
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 1,
+    "value": "rx",
+    "at": 2,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 0,
+    "value": "r",
+    "at": 2,
+    "kind": "drop",
+    "policy": "Debounce"
+  },
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 2,
+    "value": "rxjs",
+    "at": 4,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 1,
+    "value": "rx",
+    "at": 4,
+    "kind": "drop",
+    "policy": "Debounce"
+  },
+  {
+    "run": "",
+    "state": "Search",
+    "tokenId": 2,
+    "value": {
+      "query": "rxjs",
+      "results": [
+        "rxjs: first result",
+        "rxjs: second result"
+      ]
+    },
+    "at": 354,
+    "kind": "out",
+    "target": "$output"
+  }
+]

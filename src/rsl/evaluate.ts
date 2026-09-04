@@ -1,6 +1,7 @@
+import type { ObservableInput } from 'rxjs';
 import { RslError } from './errors.ts';
 import { getPath } from './paths.ts';
-import type { DataTest, KeyFn, PredicateFn, Ref, Registry, Test } from './types.ts';
+import type { DataTest, KeyFn, PredicateFn, Ref, Registry, ResourceFn, RslMachine, Test } from './types.ts';
 
 /**
  * Registry functions declare the input they expect (`(order: Order) => …`);
@@ -27,6 +28,22 @@ export function resolveRef<F extends (input: never) => unknown>(
   const fn = bucket?.[ref];
   if (fn === undefined) throw new RslError(`${where}: no ${kind} named "${ref}" in the registry`);
   return fn as unknown as RuntimeFn<ReturnType<F>>;
+}
+
+/** A Task's `Resource`: a registry name (of a function or a nested machine), an inline function, or an inline machine. */
+export function resolveResource(
+  ref: Ref<ResourceFn> | RslMachine,
+  registry: Registry,
+  where: string,
+): RuntimeFn<ObservableInput<unknown>> | RslMachine {
+  if (typeof ref === 'function') return ref as unknown as RuntimeFn<ObservableInput<unknown>>;
+  if (typeof ref === 'object') return ref;
+  if (ref.startsWith('{%')) {
+    throw new RslError(`${where}: JSONata expressions ({% ... %}) are reserved and not evaluated in v0`);
+  }
+  const found = registry.resources?.[ref];
+  if (found === undefined) throw new RslError(`${where}: no resource named "${ref}" in the registry`);
+  return typeof found === 'function' ? (found as unknown as RuntimeFn<ObservableInput<unknown>>) : found;
 }
 
 /** The comparison key for `DistinctUntilChanged`: identity, a `$`-path, or a key function. */

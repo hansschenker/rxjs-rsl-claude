@@ -4,7 +4,7 @@ RSL = ASL topology + RxJS execution policies. A declarative language describing 
 
 ASL (AWS Step Functions' Amazon States Language) runs exactly one execution per input value. It has no answer to "a second value arrived while the first is still running" (cancel? queue? ignore? run both?), no timing operators, no cancellation, and one output per state. Those are precisely the things RxJS is about. RSL keeps every ASL topology construct unchanged and adds a small, fixed vocabulary of **policies** for the time dimension.
 
-The TypeScript schema lives in `src/rsl/types.ts` and the JSON Schema for JSON/YAML documents in `rsl.schema.json`; `src/rsl/validate.ts` checks the graph rules neither can express (§14); the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`, `src/rsl/compile.ts`) implements the synchronous core: Pass, Choice, Succeed, Fail, the four shaping policies, `OnError`, the JSONPath subset, and the completion rule. Task, Wait, Parallel and Map are rejected at compile time until their slices land. §9 describes the model.
+The TypeScript schema lives in `src/rsl/types.ts` and the JSON Schema for JSON/YAML documents in `rsl.schema.json`; `src/rsl/validate.ts` checks the graph rules neither can express (§14); the examples below are type-checked in `src/rsl/examples.ts`; `src/rsl/diagram.ts` and `src/rsl/pipeview.ts` render any document (§13). The runtime (`compile`, `src/rsl/compile.ts`) implements Pass, Task (resources, `Concurrency`, `TimeoutSeconds`, `Retry`, `Catch`, `Take`, nested machines), Choice, Succeed, Fail, the four shaping policies, `OnError`, the JSONPath subset, and the completion rule. Wait, Parallel and Map are rejected at compile time until their slices land. §9 describes the model.
 
 ## 1. Definition
 
@@ -329,9 +329,9 @@ export function compile<I, O>(
 | `error` | `error`, `onError` | the token's error reached the machine's `OnError` (after Retry and Catch): `drop` ends the token, `fail` errors the output stream |
 | `cancel` | `reason` | in-flight work for the token was abandoned: `unsubscribe` (the machine was torn down while the token was pending in a debounce timer, a Wait or a resource) or `switch` (a newer token superseded it) |
 | `retry` | `attempt`, `error` | a Retrier caught the error and scheduled another run of the resource, reported at the moment of the error; `attempt` is 1 for the first retry |
-| `catch` | `error`, `target` | a Catcher routed the error token to `target`; takes the place of `out` for that token |
+| `catch` | `error`, `target` | a Catcher routed the error token to `target`; takes the place of `out` for that token, and `value` is that token (the state's input with `{ Error, Cause }` at the Catcher's `ResultPath`; `OutputPath` does not apply to it) |
 
-A token's life at a state is therefore `in`, then exactly one of `out`, `catch`, `drop`, `error` or `cancel`, with any number of `retry` events in between. The current slice emits `in`, `out`, `drop`, `error` and `cancel` (debounce timers at teardown); `retry`, `catch` and the remaining `cancel` / `drop` sources arrive with Task.
+A token's life at a state is therefore `in`, then exactly one of `out`, `catch`, `drop`, `error` or `cancel`, with any number of `retry` events in between. `tokenId` is the id of the source value the token descends from: a Task's outputs keep their input token's id, so a multi-shot resource produces several `out` events with the same id. Every kind is emitted by the current runtime; the one remaining `cancel` source, a Wait pending at teardown, arrives with the Wait slice. A token buffered by `MaxConcurrency` at teardown is not reported.
 
 Known pitfalls:
 
@@ -361,7 +361,7 @@ Why this model over the alternatives: a pure "compile the graph to one `pipe()`"
 
 ## 12. Implementation order
 
-1. **Core** (done except Task, see `src/rsl/compile.ts`): Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`. The checkout example (§8) and the four `Concurrency` marble tests in `src/rsl/task.test.ts` are this slice's acceptance tests: they are gated on the runtime accepting a Task state, skipped until then, and run unchanged once it does; the checkout golden trace (§9) appears on the first green run.
+1. **Core** (done, see `src/rsl/compile.ts`): Task, Pass, Choice, Succeed, Fail; `Next`/`End`; registry; shaping; `Concurrency`/`MaxConcurrency`/`Take`; `TimeoutSeconds`/`Retry`/`Catch`/`OnError`; JSONPath subset; alive counter and completion. First tests: the map + filter and live-search examples, with marble tests via vitest + RxJS `TestScheduler`. The checkout example (§8) and the four `Concurrency` marble tests in `src/rsl/task.test.ts` are this slice's acceptance tests: written before the slice landed, they ran unchanged once it did; the checkout golden trace (§9) is committed.
 2. **Wait + cycles**: `queueScheduler` trampolining, the feedback-token pitfall. Test: the polling example.
 3. **Parallel + `Join`, Map + `Collect`**. Test: the profile example with `forkJoin` and `combineLatest`.
 4. **Live marbles**: wire the `trace` hook to a per-state marble view. `toMermaid` and `toPipeView` already exist.

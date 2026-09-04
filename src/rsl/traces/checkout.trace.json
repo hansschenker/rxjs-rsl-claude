@@ -1,0 +1,153 @@
+[
+  {
+    "run": "",
+    "state": "Validate",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com"
+    },
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Validate",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com",
+      "valid": true
+    },
+    "at": 0,
+    "kind": "out",
+    "target": "Charge"
+  },
+  {
+    "run": "",
+    "state": "Charge",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com",
+      "valid": true
+    },
+    "at": 0,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Validate",
+    "tokenId": 1,
+    "value": {
+      "id": "ord_2",
+      "amount": 0,
+      "email": "bob@example.com"
+    },
+    "at": 2,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Validate",
+    "tokenId": 1,
+    "value": {
+      "id": "ord_2",
+      "amount": 0,
+      "email": "bob@example.com",
+      "error": {
+        "Error": "ValidationError",
+        "Cause": "order ord_2: amount must be positive"
+      }
+    },
+    "at": 2,
+    "kind": "catch",
+    "error": {
+      "name": "ValidationError",
+      "message": "order ord_2: amount must be positive"
+    },
+    "target": "Reject"
+  },
+  {
+    "run": "",
+    "state": "Reject",
+    "tokenId": 1,
+    "value": {
+      "id": "ord_2",
+      "amount": 0,
+      "email": "bob@example.com",
+      "error": {
+        "Error": "ValidationError",
+        "Cause": "order ord_2: amount must be positive"
+      }
+    },
+    "at": 2,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Reject",
+    "tokenId": 1,
+    "value": {
+      "id": "ord_2",
+      "amount": 0,
+      "email": "bob@example.com",
+      "error": {
+        "Error": "ValidationError",
+        "Cause": "order ord_2: amount must be positive"
+      },
+      "rejected": true
+    },
+    "at": 2,
+    "kind": "out",
+    "target": "$output"
+  },
+  {
+    "run": "",
+    "state": "Charge",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com",
+      "valid": true,
+      "paymentId": "pay_ord_1"
+    },
+    "at": 10,
+    "kind": "out",
+    "target": "Notify"
+  },
+  {
+    "run": "",
+    "state": "Notify",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com",
+      "valid": true,
+      "paymentId": "pay_ord_1"
+    },
+    "at": 10,
+    "kind": "in"
+  },
+  {
+    "run": "",
+    "state": "Notify",
+    "tokenId": 0,
+    "value": {
+      "id": "ord_1",
+      "amount": 49,
+      "email": "ada@example.com",
+      "valid": true,
+      "paymentId": "pay_ord_1",
+      "notified": true
+    },
+    "at": 10,
+    "kind": "out",
+    "target": "$output"
+  }
+]

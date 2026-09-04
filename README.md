@@ -130,12 +130,11 @@ one line per event as they happen.
 
 ## Status
 
-The synchronous core runs: Pass, Choice, Succeed, Fail, all four shaping
-policies, `OnError`, cycles. Task, Wait, Parallel and Map are specified,
-rendered and validated but rejected by the runtime until their slices land;
-the Task slice's acceptance tests (`src/rsl/task.test.ts`) are written and
-gated, and run on their own the moment the runtime accepts a Task state.
-See spec §12 for the order of work.
+The runtime runs Pass, Task (resources, `Concurrency`, `TimeoutSeconds`,
+`Retry`, `Catch`, `Take`, nested machines), Choice, Succeed, Fail, all four
+shaping policies, `OnError`, and cycles. Wait, Parallel and Map are
+specified, rendered and validated but rejected by the runtime until their
+slices land. See spec §12 for the order of work.
 
 ## License
 

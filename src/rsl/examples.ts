@@ -151,7 +151,20 @@ export const examples: ReadonlyArray<Example> = [
     machine: mapFilter,
     run: { input: [1, 2, 3, 4, 5], registry: { transforms: { double: (n: number) => n * 2 } } },
   },
-  { name: 'Live search', machine: liveSearch },
+  {
+    name: 'Live search',
+    machine: liveSearch,
+    // Keystrokes arriving faster than the debounce: only the last one reaches the search.
+    run: {
+      input: ['r', 'rx', 'rxjs'],
+      registry: {
+        resources: {
+          searchApi: (query: string) =>
+            timer(50).pipe(map(() => ({ query, results: [`${query}: first result`, `${query}: second result`] }))),
+        },
+      },
+    },
+  },
   { name: 'Polling loop', machine: polling },
   { name: 'Parallel profile', machine: profile },
   {
